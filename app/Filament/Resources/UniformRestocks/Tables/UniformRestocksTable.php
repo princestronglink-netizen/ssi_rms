@@ -153,6 +153,7 @@ class UniformRestocksTable
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Close'),
 
+
                 // ─── EDIT: only when pending ───────────────────────────────
                 EditAction::make()
                     ->visible(fn ($record) => $record->status === 'pending'),

@@ -524,355 +524,355 @@ class UniformIssuancesTable
 
                 // ─── CHANGE ITEM: issued or partial ───────────────────────
                 // ─── CHANGE ITEM: issued or partial ───────────────────────
-                Action::make('change_item')
-                    ->color('info')
-                    ->icon('heroicon-o-arrows-right-left')
-                    ->modalWidth('3xl')
-                    ->visible(function ($record) {
-                        if (!in_array($record->uniform_issuance_status, ['issued', 'partial'])) {
-                            return false;
-                        }
-                        if ($record->is_for_transmit) {
-                            return false;
-                        }
-                        if (\App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)->exists()) {
-                            return false;
-                        }
-                        return true;
-                    })
-                    ->form(function ($record) {
-                        $isPartial       = $record->uniform_issuance_status === 'partial';
-                        $employeeOptions = [];
-                        $itemsByEmployee = [];
+                // Action::make('change_item')
+                //     ->color('info')
+                //     ->icon('heroicon-o-arrows-right-left')
+                //     ->modalWidth('3xl')
+                //     ->visible(function ($record) {
+                //         if (!in_array($record->uniform_issuance_status, ['issued', 'partial'])) {
+                //             return false;
+                //         }
+                //         if ($record->is_for_transmit) {
+                //             return false;
+                //         }
+                //         if (\App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)->exists()) {
+                //             return false;
+                //         }
+                //         return true;
+                //     })
+                //     ->form(function ($record) {
+                //         $isPartial       = $record->uniform_issuance_status === 'partial';
+                //         $employeeOptions = [];
+                //         $itemsByEmployee = [];
 
-                        foreach ($record->uniformIssuanceRecipient as $recipient) {
-                            $name  = $recipient->employee_name;
-                            $items = [];
+                //         foreach ($record->uniformIssuanceRecipient as $recipient) {
+                //             $name  = $recipient->employee_name;
+                //             $items = [];
 
-                            foreach ($recipient->uniformIssuanceItem as $item) {
-                                $released = (int) $item->released_quantity;
-                                if ($isPartial && $released <= 0) continue;
+                //             foreach ($recipient->uniformIssuanceItem as $item) {
+                //                 $released = (int) $item->released_quantity;
+                //                 if ($isPartial && $released <= 0) continue;
 
-                                $qty              = $isPartial ? $released : (int) $item->quantity;
-                                $items[$item->id] = "{$item->uniformItem->uniform_item_name} ({$item->uniformItemVariant->uniform_item_size}) × {$qty}";
-                            }
+                //                 $qty              = $isPartial ? $released : (int) $item->quantity;
+                //                 $items[$item->id] = "{$item->uniformItem->uniform_item_name} ({$item->uniformItemVariant->uniform_item_size}) × {$qty}";
+                //             }
 
-                            if (!empty($items)) {
-                                $employeeOptions[$name] = $name;
-                                $itemsByEmployee[$name] = $items;
-                            }
-                        }
+                //             if (!empty($items)) {
+                //                 $employeeOptions[$name] = $name;
+                //                 $itemsByEmployee[$name] = $items;
+                //             }
+                //         }
 
-                        $itemsByEmployeeJson = htmlspecialchars(json_encode($itemsByEmployee), ENT_QUOTES);
+                //         $itemsByEmployeeJson = htmlspecialchars(json_encode($itemsByEmployee), ENT_QUOTES);
 
-                        return [
-                            Placeholder::make('_map')
-                                ->label('')
-                                ->content(new HtmlString(
-                                    "<script>window._changeItemMap = {$itemsByEmployeeJson};</script>"
-                                ))
-                                ->columnSpanFull(),
+                //         return [
+                //             Placeholder::make('_map')
+                //                 ->label('')
+                //                 ->content(new HtmlString(
+                //                     "<script>window._changeItemMap = {$itemsByEmployeeJson};</script>"
+                //                 ))
+                //                 ->columnSpanFull(),
 
-                            \Filament\Forms\Components\Repeater::make('changes')
-                                ->label('Items to Change')
-                                ->addActionLabel('+ Add Another Change')
-                                ->minItems(1)
-                                ->defaultItems(1)
-                                ->columnSpanFull()
-                                ->schema([
-                                    Select::make('employee')
-                                        ->label('Employee')
-                                        ->options($employeeOptions)
-                                        ->required()
-                                        ->live()
-                                        ->afterStateUpdated(function (callable $set) {
-                                            $set('from_item_id', null);
-                                        }),
+                //             \Filament\Forms\Components\Repeater::make('changes')
+                //                 ->label('Items to Change')
+                //                 ->addActionLabel('+ Add Another Change')
+                //                 ->minItems(1)
+                //                 ->defaultItems(1)
+                //                 ->columnSpanFull()
+                //                 ->schema([
+                //                     Select::make('employee')
+                //                         ->label('Employee')
+                //                         ->options($employeeOptions)
+                //                         ->required()
+                //                         ->live()
+                //                         ->afterStateUpdated(function (callable $set) {
+                //                             $set('from_item_id', null);
+                //                         }),
 
-                                    Select::make('from_item_id')
-                                        ->label('Item to Change')
-                                        ->options(function (callable $get) use ($itemsByEmployee) {
-                                            $emp = $get('employee');
-                                            return $emp ? ($itemsByEmployee[$emp] ?? []) : [];
-                                        })
-                                        ->required()
-                                        ->live()
-                                        ->searchable(),
+                //                     Select::make('from_item_id')
+                //                         ->label('Item to Change')
+                //                         ->options(function (callable $get) use ($itemsByEmployee) {
+                //                             $emp = $get('employee');
+                //                             return $emp ? ($itemsByEmployee[$emp] ?? []) : [];
+                //                         })
+                //                         ->required()
+                //                         ->live()
+                //                         ->searchable(),
 
-                                    TextInput::make('change_qty')
-                                        ->label('Quantity to Change')
-                                        ->helperText('How many of this item are being swapped out')
-                                        ->numeric()
-                                        ->minValue(1)
-                                        ->required(),
+                //                     TextInput::make('change_qty')
+                //                         ->label('Quantity to Change')
+                //                         ->helperText('How many of this item are being swapped out')
+                //                         ->numeric()
+                //                         ->minValue(1)
+                //                         ->required(),
 
-                                    Select::make('to_item_id')
-                                        ->label('Replacement Item')
-                                        ->options(UniformItems::pluck('uniform_item_name', 'id'))
-                                        ->required()
-                                        ->live()
-                                        ->searchable()
-                                        ->afterStateUpdated(function (callable $set) {
-                                            $set('to_variant_id', null);
-                                        }),
+                //                     Select::make('to_item_id')
+                //                         ->label('Replacement Item')
+                //                         ->options(UniformItems::pluck('uniform_item_name', 'id'))
+                //                         ->required()
+                //                         ->live()
+                //                         ->searchable()
+                //                         ->afterStateUpdated(function (callable $set) {
+                //                             $set('to_variant_id', null);
+                //                         }),
 
-                                    Select::make('to_variant_id')
-                                        ->label('Replacement Size / Variant')
-                                        ->options(function (callable $get) {
-                                            $itemId = $get('to_item_id');
-                                            if (!$itemId) return [];
-                                            return UniformItemVariants::where('uniform_item_id', $itemId)
-                                                ->pluck('uniform_item_size', 'id');
-                                        })
-                                        ->required()
-                                        ->live()
-                                        ->searchable(),
+                //                     Select::make('to_variant_id')
+                //                         ->label('Replacement Size / Variant')
+                //                         ->options(function (callable $get) {
+                //                             $itemId = $get('to_item_id');
+                //                             if (!$itemId) return [];
+                //                             return UniformItemVariants::where('uniform_item_id', $itemId)
+                //                                 ->pluck('uniform_item_size', 'id');
+                //                         })
+                //                         ->required()
+                //                         ->live()
+                //                         ->searchable(),
 
-                                    TextInput::make('replacement_qty')
-                                        ->label('Replacement Quantity')
-                                        ->helperText('How many replacement items to issue')
-                                        ->numeric()
-                                        ->minValue(1)
-                                        ->required(),
-                                ]),
-                        ];
-                    })
-                    ->action(function ($record, array $data, Action $action) {
-                        $isPartial = $record->uniform_issuance_status === 'partial';
-                        $changes   = $data['changes'] ?? [];
+                //                     TextInput::make('replacement_qty')
+                //                         ->label('Replacement Quantity')
+                //                         ->helperText('How many replacement items to issue')
+                //                         ->numeric()
+                //                         ->minValue(1)
+                //                         ->required(),
+                //                 ]),
+                //         ];
+                //     })
+                //     ->action(function ($record, array $data, Action $action) {
+                //         $isPartial = $record->uniform_issuance_status === 'partial';
+                //         $changes   = $data['changes'] ?? [];
 
-                        if (empty($changes)) {
-                            Notification::make()->title('No Changes')->body('Add at least one change.')->warning()->send();
-                            $action->halt();
-                            return;
-                        }
+                //         if (empty($changes)) {
+                //             Notification::make()->title('No Changes')->body('Add at least one change.')->warning()->send();
+                //             $action->halt();
+                //             return;
+                //         }
 
-                        // ── Validate all rows first before making any changes ──
-                        $resolved = [];
-                        foreach ($changes as $idx => $row) {
-                            $fromItemId     = (int) ($row['from_item_id'] ?? 0);
-                            $changeQty      = (int) ($row['change_qty'] ?? 0);
-                            $toItemId       = (int) ($row['to_item_id'] ?? 0);
-                            $toVariantId    = (int) ($row['to_variant_id'] ?? 0);
-                            $replacementQty = (int) ($row['replacement_qty'] ?? 0);
+                //         // ── Validate all rows first before making any changes ──
+                //         $resolved = [];
+                //         foreach ($changes as $idx => $row) {
+                //             $fromItemId     = (int) ($row['from_item_id'] ?? 0);
+                //             $changeQty      = (int) ($row['change_qty'] ?? 0);
+                //             $toItemId       = (int) ($row['to_item_id'] ?? 0);
+                //             $toVariantId    = (int) ($row['to_variant_id'] ?? 0);
+                //             $replacementQty = (int) ($row['replacement_qty'] ?? 0);
 
-                            if (!$fromItemId || !$toVariantId || $changeQty <= 0 || $replacementQty <= 0) {
-                                Notification::make()
-                                    ->title('Row ' . ($idx + 1) . ' is incomplete')
-                                    ->warning()
-                                    ->send();
-                                $action->halt();
-                                return;
-                            }
+                //             if (!$fromItemId || !$toVariantId || $changeQty <= 0 || $replacementQty <= 0) {
+                //                 Notification::make()
+                //                     ->title('Row ' . ($idx + 1) . ' is incomplete')
+                //                     ->warning()
+                //                     ->send();
+                //                 $action->halt();
+                //                 return;
+                //             }
 
-                            $issuanceItem    = null;
-                            $recipientRecord = null;
+                //             $issuanceItem    = null;
+                //             $recipientRecord = null;
 
-                            foreach ($record->uniformIssuanceRecipient as $recipient) {
-                                $found = $recipient->uniformIssuanceItem->firstWhere('id', $fromItemId);
-                                if ($found) {
-                                    $issuanceItem    = $found;
-                                    $recipientRecord = $recipient;
-                                    break;
-                                }
-                            }
+                //             foreach ($record->uniformIssuanceRecipient as $recipient) {
+                //                 $found = $recipient->uniformIssuanceItem->firstWhere('id', $fromItemId);
+                //                 if ($found) {
+                //                     $issuanceItem    = $found;
+                //                     $recipientRecord = $recipient;
+                //                     break;
+                //                 }
+                //             }
 
-                            if (!$issuanceItem) {
-                                Notification::make()->title('Item not found')->danger()->send();
-                                $action->halt();
-                                return;
-                            }
+                //             if (!$issuanceItem) {
+                //                 Notification::make()->title('Item not found')->danger()->send();
+                //                 $action->halt();
+                //                 return;
+                //             }
 
-                            $currentReleased = (int) $issuanceItem->released_quantity;
-                            if ($changeQty > $currentReleased) {
-                                Notification::make()
-                                    ->title('Change Qty Exceeds Released')
-                                    ->body("You can only change up to {$currentReleased} of that item.")
-                                    ->danger()
-                                    ->send();
-                                $action->halt();
-                                return;
-                            }
+                //             $currentReleased = (int) $issuanceItem->released_quantity;
+                //             if ($changeQty > $currentReleased) {
+                //                 Notification::make()
+                //                     ->title('Change Qty Exceeds Released')
+                //                     ->body("You can only change up to {$currentReleased} of that item.")
+                //                     ->danger()
+                //                     ->send();
+                //                 $action->halt();
+                //                 return;
+                //             }
 
-                            $toVariant = UniformItemVariants::find($toVariantId);
-                            if (!$toVariant) {
-                                Notification::make()->title('Replacement Variant Not Found')->danger()->send();
-                                $action->halt();
-                                return;
-                            }
+                //             $toVariant = UniformItemVariants::find($toVariantId);
+                //             if (!$toVariant) {
+                //                 Notification::make()->title('Replacement Variant Not Found')->danger()->send();
+                //                 $action->halt();
+                //                 return;
+                //             }
 
-                            if ((int) $toVariant->uniform_item_quantity < $replacementQty) {
-                                Notification::make()
-                                    ->title('Insufficient Stock')
-                                    ->body("'{$toVariant->uniformItem?->uniform_item_name} - {$toVariant->uniform_item_size}' only has {$toVariant->uniform_item_quantity} in stock but you need {$replacementQty}.")
-                                    ->danger()
-                                    ->send();
-                                $action->halt();
-                                return;
-                            }
+                //             if ((int) $toVariant->uniform_item_quantity < $replacementQty) {
+                //                 Notification::make()
+                //                     ->title('Insufficient Stock')
+                //                     ->body("'{$toVariant->uniformItem?->uniform_item_name} - {$toVariant->uniform_item_size}' only has {$toVariant->uniform_item_quantity} in stock but you need {$replacementQty}.")
+                //                     ->danger()
+                //                     ->send();
+                //                 $action->halt();
+                //                 return;
+                //             }
 
-                            $resolved[] = [
-                                'item'            => $issuanceItem,
-                                'recipient'       => $recipientRecord,
-                                'change_qty'      => $changeQty,
-                                'to_item_id'      => $toItemId,
-                                'to_variant_id'   => $toVariantId,
-                                'to_variant'      => $toVariant,
-                                'replacement_qty' => $replacementQty,
-                            ];
-                        }
+                //             $resolved[] = [
+                //                 'item'            => $issuanceItem,
+                //                 'recipient'       => $recipientRecord,
+                //                 'change_qty'      => $changeQty,
+                //                 'to_item_id'      => $toItemId,
+                //                 'to_variant_id'   => $toVariantId,
+                //                 'to_variant'      => $toVariant,
+                //                 'replacement_qty' => $replacementQty,
+                //             ];
+                //         }
 
-                        // ── Apply all changes ──
-                        $changeNote = [];
+                //         // ── Apply all changes ──
+                //         $changeNote = [];
 
-                        foreach ($resolved as $r) {
-                            $item             = $r['item'];
-                            $recipient        = $r['recipient'];
-                            $changeQty        = $r['change_qty'];
-                            $toVariantId      = $r['to_variant_id'];
-                            $toItemId         = $r['to_item_id'];
-                            $replacementQty   = $r['replacement_qty'];
-                            $currentReleased  = (int) $item->released_quantity;
-                            $currentRemaining = (int) $item->remaining_quantity;
-                            $currentQty       = (int) $item->quantity;
+                //         foreach ($resolved as $r) {
+                //             $item             = $r['item'];
+                //             $recipient        = $r['recipient'];
+                //             $changeQty        = $r['change_qty'];
+                //             $toVariantId      = $r['to_variant_id'];
+                //             $toItemId         = $r['to_item_id'];
+                //             $replacementQty   = $r['replacement_qty'];
+                //             $currentReleased  = (int) $item->released_quantity;
+                //             $currentRemaining = (int) $item->remaining_quantity;
+                //             $currentQty       = (int) $item->quantity;
 
-                            $oldVariant   = UniformItemVariants::find($item->uniform_item_variant_id);
-                            $newVariant   = UniformItemVariants::find($toVariantId);
-                            $oldItemModel = \App\Models\UniformItems::find($item->uniform_item_id);
-                            $newItemModel = \App\Models\UniformItems::find($toItemId);
+                //             $oldVariant   = UniformItemVariants::find($item->uniform_item_variant_id);
+                //             $newVariant   = UniformItemVariants::find($toVariantId);
+                //             $oldItemModel = \App\Models\UniformItems::find($item->uniform_item_id);
+                //             $newItemModel = \App\Models\UniformItems::find($toItemId);
 
-                            // ── Adjust stock ──
-                            if ($oldVariant && $changeQty > 0) {
-                                $oldVariant->increment('uniform_item_quantity', $changeQty);
-                            }
-                            if ($newVariant) {
-                                $newVariant->decrement('uniform_item_quantity', $replacementQty);
-                            }
+                //             // ── Adjust stock ──
+                //             if ($oldVariant && $changeQty > 0) {
+                //                 $oldVariant->increment('uniform_item_quantity', $changeQty);
+                //             }
+                //             if ($newVariant) {
+                //                 $newVariant->decrement('uniform_item_quantity', $replacementQty);
+                //             }
 
-                            // ── Update or delete the original issuance item ──
-                            $reducedReleased = $currentReleased - $changeQty;
-                            $reducedQty      = $currentQty - $changeQty;
+                //             // ── Update or delete the original issuance item ──
+                //             $reducedReleased = $currentReleased - $changeQty;
+                //             $reducedQty      = $currentQty - $changeQty;
 
-                            if ($reducedReleased <= 0 && $currentRemaining <= 0) {
-                                $item->delete();
-                            } else {
-                                $item->update([
-                                    'quantity'           => max(0, $reducedQty),
-                                    'released_quantity'  => max(0, $reducedReleased),
-                                    'remaining_quantity' => $isPartial
-                                        ? $currentRemaining
-                                        : max(0, $reducedQty - max(0, $reducedReleased)),
-                                ]);
-                            }
+                //             if ($reducedReleased <= 0 && $currentRemaining <= 0) {
+                //                 $item->delete();
+                //             } else {
+                //                 $item->update([
+                //                     'quantity'           => max(0, $reducedQty),
+                //                     'released_quantity'  => max(0, $reducedReleased),
+                //                     'remaining_quantity' => $isPartial
+                //                         ? $currentRemaining
+                //                         : max(0, $reducedQty - max(0, $reducedReleased)),
+                //                 ]);
+                //             }
 
-                            // ── Upsert replacement item ──
-                            // If same item+variant already exists for this recipient, increment quantities
-                            $existingIssuanceItem = \App\Models\UniformIssuanceItems::where([
-                                'uniform_issuance_recipient_id' => $recipient->id,
-                                'uniform_item_id'               => $toItemId,
-                                'uniform_item_variant_id'       => $toVariantId,
-                            ])->first();
+                //             // ── Upsert replacement item ──
+                //             // If same item+variant already exists for this recipient, increment quantities
+                //             $existingIssuanceItem = \App\Models\UniformIssuanceItems::where([
+                //                 'uniform_issuance_recipient_id' => $recipient->id,
+                //                 'uniform_item_id'               => $toItemId,
+                //                 'uniform_item_variant_id'       => $toVariantId,
+                //             ])->first();
 
-                            if ($existingIssuanceItem) {
-                                $existingIssuanceItem->increment('quantity',          $replacementQty);
-                                $existingIssuanceItem->increment('released_quantity', $replacementQty);
-                                // remaining_quantity stays as-is (already fully issued)
-                            } else {
-                                $newIssuanceItem = $item->replicate(['id', 'created_at', 'updated_at']);
-                                $newIssuanceItem->uniform_item_id         = $toItemId;
-                                $newIssuanceItem->uniform_item_variant_id = $toVariantId;
-                                $newIssuanceItem->quantity                = $replacementQty;
-                                $newIssuanceItem->released_quantity       = $replacementQty;
-                                $newIssuanceItem->remaining_quantity      = 0;
-                                $newIssuanceItem->save();
-                            }
+                //             if ($existingIssuanceItem) {
+                //                 $existingIssuanceItem->increment('quantity',          $replacementQty);
+                //                 $existingIssuanceItem->increment('released_quantity', $replacementQty);
+                //                 // remaining_quantity stays as-is (already fully issued)
+                //             } else {
+                //                 $newIssuanceItem = $item->replicate(['id', 'created_at', 'updated_at']);
+                //                 $newIssuanceItem->uniform_item_id         = $toItemId;
+                //                 $newIssuanceItem->uniform_item_variant_id = $toVariantId;
+                //                 $newIssuanceItem->quantity                = $replacementQty;
+                //                 $newIssuanceItem->released_quantity       = $replacementQty;
+                //                 $newIssuanceItem->remaining_quantity      = 0;
+                //                 $newIssuanceItem->save();
+                //             }
 
-                            $oldStockAfter  = (int) $oldVariant->fresh()->uniform_item_quantity;
-                            $oldStockBefore = $oldStockAfter - $changeQty; 
+                //             $oldStockAfter  = (int) $oldVariant->fresh()->uniform_item_quantity;
+                //             $oldStockBefore = $oldStockAfter - $changeQty; 
 
-                            $newStockAfter  = (int) $newVariant->fresh()->uniform_item_quantity;
-                            $newStockBefore = $newStockAfter + $replacementQty; 
+                //             $newStockAfter  = (int) $newVariant->fresh()->uniform_item_quantity;
+                //             $newStockBefore = $newStockAfter + $replacementQty; 
 
-                            $changeNote[] = [
-                                'label'           => $recipient->employee_name,
-                                'released'        => $replacementQty,
-                                '_from'           => "{$oldItemModel?->uniform_item_name} ({$oldVariant?->uniform_item_size}) × {$changeQty}",
-                                '_to'             => "{$newItemModel?->uniform_item_name} ({$newVariant?->uniform_item_size}) × {$replacementQty}",
-                                '_new_item_name'  => $newItemModel?->uniform_item_name ?? '—',
-                                '_new_item_size'  => $newVariant?->uniform_item_size ?? '—',
-                                '_employee'       => $recipient->employee_name,
-                                '_old_item_id'    => $item->uniform_item_id,
-                                '_old_variant_id' => $item->uniform_item_variant_id,
-                                '_change_qty'     => $changeQty,
-                                '_release_label'  => "{$newItemModel?->uniform_item_name} ({$newVariant?->uniform_item_size}) — {$recipient->employee_name}",
-                                'old_stock_before' => $oldStockBefore,
-                                'old_stock_after'  => $oldStockAfter,
-                                'new_stock_before' => $newStockBefore,
-                                'new_stock_after'  => $newStockAfter,
-                            ];
-                        }
+                //             $changeNote[] = [
+                //                 'label'           => $recipient->employee_name,
+                //                 'released'        => $replacementQty,
+                //                 '_from'           => "{$oldItemModel?->uniform_item_name} ({$oldVariant?->uniform_item_size}) × {$changeQty}",
+                //                 '_to'             => "{$newItemModel?->uniform_item_name} ({$newVariant?->uniform_item_size}) × {$replacementQty}",
+                //                 '_new_item_name'  => $newItemModel?->uniform_item_name ?? '—',
+                //                 '_new_item_size'  => $newVariant?->uniform_item_size ?? '—',
+                //                 '_employee'       => $recipient->employee_name,
+                //                 '_old_item_id'    => $item->uniform_item_id,
+                //                 '_old_variant_id' => $item->uniform_item_variant_id,
+                //                 '_change_qty'     => $changeQty,
+                //                 '_release_label'  => "{$newItemModel?->uniform_item_name} ({$newVariant?->uniform_item_size}) — {$recipient->employee_name}",
+                //                 'old_stock_before' => $oldStockBefore,
+                //                 'old_stock_after'  => $oldStockAfter,
+                //                 'new_stock_before' => $newStockBefore,
+                //                 'new_stock_after'  => $newStockAfter,
+                //             ];
+                //         }
 
-                        // ── Log: item_changed ──
-                        UniformIssuanceLog::create([
-                            'uniform_issuance_id' => $record->id,
-                            'user_id'             => Auth::id(),
-                            'action'              => 'item_changed',
-                            'status_from'         => $record->uniform_issuance_status,
-                            'status_to'           => $record->uniform_issuance_status,
-                            'note'                => json_encode($changeNote),
-                        ]);
+                //         // ── Log: item_changed ──
+                //         UniformIssuanceLog::create([
+                //             'uniform_issuance_id' => $record->id,
+                //             'user_id'             => Auth::id(),
+                //             'action'              => 'item_changed',
+                //             'status_from'         => $record->uniform_issuance_status,
+                //             'status_to'           => $record->uniform_issuance_status,
+                //             'note'                => json_encode($changeNote),
+                //         ]);
 
-                        // ── Log: item_released ──
-                        $releaseNote = array_map(fn ($c) => [
-                            'label'    => $c['_release_label'],
-                            'released' => $c['released'],
-                        ], $changeNote);
+                //         // ── Log: item_released ──
+                //         $releaseNote = array_map(fn ($c) => [
+                //             'label'    => $c['_release_label'],
+                //             'released' => $c['released'],
+                //         ], $changeNote);
 
-                        UniformIssuanceLog::create([
-                            'uniform_issuance_id' => $record->id,
-                            'user_id'             => Auth::id(),
-                            'action'              => 'item_released',
-                            'status_from'         => $record->uniform_issuance_status,
-                            'status_to'           => $record->uniform_issuance_status,
-                            'note'                => json_encode($releaseNote),
-                        ]);
+                //         UniformIssuanceLog::create([
+                //             'uniform_issuance_id' => $record->id,
+                //             'user_id'             => Auth::id(),
+                //             'action'              => 'item_released',
+                //             'status_from'         => $record->uniform_issuance_status,
+                //             'status_to'           => $record->uniform_issuance_status,
+                //             'note'                => json_encode($releaseNote),
+                //         ]);
 
-                        // ── Sync transmittal items_summary if any exist ──
-                        $existingTransmittals = \App\Models\Transmittals::where('uniform_issuance_id', $record->id)->get();
+                //         // ── Sync transmittal items_summary if any exist ──
+                //         $existingTransmittals = \App\Models\Transmittals::where('uniform_issuance_id', $record->id)->get();
 
-                        if ($existingTransmittals->count() > 0) {
-                            $freshRecord = \App\Models\UniformIssuances::with([
-                                'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
-                                'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
-                            ])->find($record->id);
+                //         if ($existingTransmittals->count() > 0) {
+                //             $freshRecord = \App\Models\UniformIssuances::with([
+                //                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+                //                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                //             ])->find($record->id);
 
-                            $summaryMap = [];
-                            foreach ($freshRecord->uniformIssuanceRecipient as $recipient) {
-                                foreach ($recipient->uniformIssuanceItem as $item) {
-                                    $qty = (int) ($item->released_quantity ?: $item->quantity);
-                                    if ($qty <= 0) continue;
-                                    $itemName = $item->uniformItem?->uniform_item_name ?? '—';
-                                    $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
-                                    $key      = $itemName . '||' . $size;
-                                    if (!isset($summaryMap[$key])) {
-                                        $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
-                                    }
-                                    $summaryMap[$key]['qty'] += $qty;
-                                }
-                            }
-                            $newSummary = array_values($summaryMap);
+                //             $summaryMap = [];
+                //             foreach ($freshRecord->uniformIssuanceRecipient as $recipient) {
+                //                 foreach ($recipient->uniformIssuanceItem as $item) {
+                //                     $qty = (int) ($item->released_quantity ?: $item->quantity);
+                //                     if ($qty <= 0) continue;
+                //                     $itemName = $item->uniformItem?->uniform_item_name ?? '—';
+                //                     $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
+                //                     $key      = $itemName . '||' . $size;
+                //                     if (!isset($summaryMap[$key])) {
+                //                         $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
+                //                     }
+                //                     $summaryMap[$key]['qty'] += $qty;
+                //                 }
+                //             }
+                //             $newSummary = array_values($summaryMap);
 
-                            foreach ($existingTransmittals as $txn) {
-                                $txn->update(['items_summary' => $newSummary]);
-                            }
-                        }
+                //             foreach ($existingTransmittals as $txn) {
+                //                 $txn->update(['items_summary' => $newSummary]);
+                //             }
+                //         }
 
-                        Notification::make()
-                            ->title('Items Changed')
-                            ->body(count($changeNote) . ' change(s) applied successfully.')
-                            ->success()
-                            ->send();
-                    }),
+                //         Notification::make()
+                //             ->title('Items Changed')
+                //             ->body(count($changeNote) . ' change(s) applied successfully.')
+                //             ->success()
+                //             ->send();
+                //     }),
 
                 // ─── LOGS ──────────────────────────────────────────────────
                 Action::make('view_logs')

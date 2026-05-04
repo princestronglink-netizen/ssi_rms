@@ -23,6 +23,7 @@ class OfficeSupplyRestocksForm
 
                 TextInput::make('ordered_by')
                     ->label('Ordered By')
+                    ->default(auth()->user()->name)
                     ->required(),
 
                 Select::make('status')
@@ -125,6 +126,7 @@ class OfficeSupplyRestocksForm
                             ->label('Delivered Qty')
                             ->numeric()
                             ->default(0)
+                            ->hidden()
                             ->minValue(0)
                             ->disabled()
                             ->dehydrated(true),
@@ -133,10 +135,12 @@ class OfficeSupplyRestocksForm
                             ->label('Remaining Qty')
                             ->numeric()
                             ->default(0)
+                            ->hidden()
                             ->minValue(0)
                             ->disabled()
                             ->dehydrated(true),
-                    ]),
+                    ])
+                    ->columns(3),
             ]);
     }
 }

@@ -79,7 +79,7 @@ class UniformItemVariantsTable
                 TrashedFilter::make(),
             ])
             ->recordActions([
-
+                
                 // ─── STOCK LOGS ────────────────────────────────────────────
                 Action::make('stock_logs')
                     ->label('Logs')

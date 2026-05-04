@@ -23,6 +23,7 @@ use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use App\Filament\Pages\PosOfficeSupplyRequest;
 use App\Filament\Pages\UniformStockFlow;
+use App\Filament\Pages\SmeStockFlow;
 
 class SuperadminPanelProvider extends PanelProvider
 {
@@ -51,6 +52,7 @@ class SuperadminPanelProvider extends PanelProvider
                 Dashboard::class,
                 PosOfficeSupplyRequest::class,
                 UniformStockFlow::class,
+                SmeStockFlow::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([

@@ -19,10 +19,12 @@ class UniformRestocksForm
             ->components([
                 TextInput::make('supplier_name')
                     ->label('Supplier Name')
+                    ->default('Ms. Eppie')
                     ->required(),
 
                 TextInput::make('ordered_by')
                     ->label('Ordered By')
+                    ->default(auth()->user()->name)
                     ->required(),
 
                 Select::make('status')
@@ -124,6 +126,7 @@ class UniformRestocksForm
                         TextInput::make('delivered_quantity')
                             ->label('Delivered Qty')
                             ->numeric()
+                            ->hidden()
                             ->default(0)
                             ->minValue(0)
                             ->disabled()
@@ -132,11 +135,13 @@ class UniformRestocksForm
                         TextInput::make('remaining_quantity')
                             ->label('Remaining Qty')
                             ->numeric()
+                            ->hidden()
                             ->default(0)
                             ->minValue(0)
                             ->disabled()
                             ->dehydrated(true),
-                    ]),
+                    ])
+                    ->columns(3),
             ]);
     }
 }

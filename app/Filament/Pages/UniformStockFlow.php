@@ -30,6 +30,9 @@ class UniformStockFlow extends Page implements HasForms
 
     public string $summary_tab = 'item';
 
+    // ── Report generation state ───────────────────────────────────────────────
+    public bool   $report_generating = false;
+
     public function mount(): void
     {
         $this->date_from = now()->startOfYear()->toDateString();
@@ -67,7 +70,6 @@ class UniformStockFlow extends Page implements HasForms
             ->join('uniform_categories', 'uniform_categories.id', '=', 'uniform_items.uniform_category_id')
             ->leftJoin('uniform_item_variants', 'uniform_item_variants.id', '=', 'uniform_issuance_items.uniform_item_variant_id')
             ->leftJoin('sites', 'sites.id', '=', 'uniform_issuances.site_id')
-            // ✅ Join the issuance type lookup table — type is stored as FK, not a plain string
             ->leftJoin('uniform_issuance_types', 'uniform_issuance_types.id', '=', 'uniform_issuances.uniform_issuance_type_id')
             ->whereIn('uniform_issuances.uniform_issuance_status', ['issued', 'partial'])
             ->whereBetween('uniform_issuances.issued_at', [$from, $to]);
@@ -194,7 +196,6 @@ class UniformStockFlow extends Page implements HasForms
                 'uniform_item_variants.uniform_item_size as variant_size',
                 'sites.site_name as site_name',
                 'uniform_issuance_recipients.employee_name as person_name',
-                // ✅ Pull type name from the joined uniform_issuance_types table
                 'uniform_issuance_types.uniform_issuance_type_name as issuance_type',
             )
             ->get();
@@ -205,7 +206,6 @@ class UniformStockFlow extends Page implements HasForms
                     'label'    => $name,
                     'category' => $group->first()->category_name ?? '—',
                     'total'    => $group->sum('released_quantity'),
-                    // ✅ Each issuance type → its sizes and subtotal
                     'issuance_types' => $group->groupBy('issuance_type')
                         ->map(fn ($tg, $type) => [
                             'subtotal' => $tg->sum('released_quantity'),
@@ -227,7 +227,6 @@ class UniformStockFlow extends Page implements HasForms
                 ->map(fn ($group, $site) => [
                     'label' => $site ?? 'Unknown',
                     'total' => $group->sum('released_quantity'),
-                    // ✅ Each issuance type → its items and subtotal
                     'issuance_types' => $group->groupBy('issuance_type')
                         ->map(fn ($tg, $type) => [
                             'subtotal' => $tg->sum('released_quantity'),
@@ -250,7 +249,6 @@ class UniformStockFlow extends Page implements HasForms
                 'label' => trim($person) ?: 'Unknown',
                 'site'  => $group->first()->site_name ?? '—',
                 'total' => $group->sum('released_quantity'),
-                // ✅ Each issuance type → its items and subtotal
                 'issuance_types' => $group->groupBy('issuance_type')
                     ->map(fn ($tg, $type) => [
                         'subtotal' => $tg->sum('released_quantity'),
@@ -265,6 +263,169 @@ class UniformStockFlow extends Page implements HasForms
             ->sortByDesc('total')
             ->values()
             ->toArray();
+    }
+
+    // ── Report Generation ────────────────────────────────────────────────────
+
+    /**
+     * Triggered by the JS modal "Generate & Download" button.
+     * Dispatches to a dedicated export action/job.
+     *
+     * @param  string   $date_from
+     * @param  string   $date_to
+     * @param  string[] $sections  e.g. ['stock_summary', 'issuances', 'restocks', 'returns', ...]
+     * @param  string   $format    'pdf' | 'xlsx' | 'csv'
+     */
+    public function generateReport(string $date_from, string $date_to, array $sections = [], string $format = 'pdf'): void
+    {
+        // Temporarily override filters so the data helpers use the report's range
+        $originalFrom = $this->date_from;
+        $originalTo   = $this->date_to;
+
+        $this->date_from = $date_from;
+        $this->date_to   = $date_to;
+
+        $payload = [
+            'date_from'    => $date_from,
+            'date_to'      => $date_to,
+            'sections'     => $sections,
+            'format'       => $format,
+            'category_id'  => $this->category_id,
+            'item_id'      => $this->item_id,
+            'variant_id'   => $this->variant_id,
+            'metrics'      => $this->getMetrics(),
+            'chart_data'   => $this->getFlowChartData(),
+        ];
+
+        // Include requested section data
+        if (in_array('issuances', $sections) || in_array('issuance_by_site', $sections) || in_array('issuance_by_person', $sections)) {
+            $savedTab = $this->summary_tab;
+
+            if (in_array('issuances', $sections)) {
+                $this->summary_tab = 'item';
+                $payload['issuance_by_item'] = $this->getIssuanceSummary();
+            }
+            if (in_array('issuance_by_site', $sections)) {
+                $this->summary_tab = 'site';
+                $payload['issuance_by_site'] = $this->getIssuanceSummary();
+            }
+            if (in_array('issuance_by_person', $sections)) {
+                $this->summary_tab = 'person';
+                $payload['issuance_by_person'] = $this->getIssuanceSummary();
+            }
+
+            $this->summary_tab = $savedTab;
+        }
+
+        if (in_array('stock_summary', $sections)) {
+            $payload['stock_summary'] = $this->getStockSummary();
+        }
+
+        if (in_array('restocks', $sections)) {
+            $payload['restocks'] = $this->getRestockSummary($date_from, $date_to);
+        }
+
+        if (in_array('returns', $sections)) {
+            $payload['returns'] = $this->getReturnSummary($date_from, $date_to);
+        }
+
+        // Restore original filter range
+        $this->date_from = $originalFrom;
+        $this->date_to   = $originalTo;
+
+        // TODO: Hand off to your export service, e.g.:
+        // UniformStockFlowExport::dispatch($payload);
+        // Or: return response()->download(UniformStockFlowExport::make($payload));
+
+        // For now, notify the user the report is being prepared
+        $this->dispatch('notify', [
+            'title'  => 'Report Queued',
+            'body'   => "Your {$format} report ({$date_from} → {$date_to}) is being prepared.",
+            'status' => 'success',
+        ]);
+    }
+
+    /**
+     * Current stock per item variant — used in report generation.
+     */
+    public function getStockSummary(): array
+    {
+        $q = \App\Models\UniformItemVariants::query()
+            ->join('uniform_items', 'uniform_items.id', '=', 'uniform_item_variants.uniform_item_id')
+            ->join('uniform_categories', 'uniform_categories.id', '=', 'uniform_items.uniform_category_id')
+            ->select(
+                'uniform_items.uniform_item_name as item_name',
+                'uniform_categories.uniform_category_name as category_name',
+                'uniform_item_variants.uniform_item_size as size',
+                'uniform_item_variants.uniform_item_quantity as quantity',
+                'uniform_item_variants.id as variant_id',
+            )
+            ->orderBy('uniform_categories.uniform_category_name')
+            ->orderBy('uniform_items.uniform_item_name')
+            ->orderBy('uniform_item_variants.uniform_item_size');
+
+        if ($this->item_id)     $q->where('uniform_item_variants.uniform_item_id', $this->item_id);
+        if ($this->variant_id)  $q->where('uniform_item_variants.id', $this->variant_id);
+        if ($this->category_id) $q->where('uniform_items.uniform_category_id', $this->category_id);
+
+        return $q->get()->toArray();
+    }
+
+    /**
+     * Restock summary for the report date range.
+     */
+    private function getRestockSummary(string $from, string $to): array
+    {
+        $q = \App\Models\UniformRestockItems::query()
+            ->join('uniform_restocks', 'uniform_restocks.id', '=', 'uniform_restock_items.uniform_restock_id')
+            ->join('uniform_items', 'uniform_items.id', '=', 'uniform_restock_items.uniform_item_id')
+            ->join('uniform_categories', 'uniform_categories.id', '=', 'uniform_items.uniform_category_id')
+            ->leftJoin('uniform_item_variants', 'uniform_item_variants.id', '=', 'uniform_restock_items.uniform_item_variant_id')
+            ->whereIn('uniform_restocks.status', ['delivered', 'partial'])
+            ->whereBetween('uniform_restocks.delivered_at', [$from, $to])
+            ->select(
+                'uniform_items.uniform_item_name as item_name',
+                'uniform_categories.uniform_category_name as category_name',
+                'uniform_item_variants.uniform_item_size as size',
+                'uniform_restock_items.delivered_quantity',
+                'uniform_restocks.delivered_at',
+            )
+            ->orderBy('uniform_restocks.delivered_at');
+
+        if ($this->item_id)     $q->where('uniform_restock_items.uniform_item_id', $this->item_id);
+        if ($this->variant_id)  $q->where('uniform_restock_items.uniform_item_variant_id', $this->variant_id);
+        if ($this->category_id) $q->where('uniform_items.uniform_category_id', $this->category_id);
+
+        return $q->get()->toArray();
+    }
+
+    /**
+     * Return summary for the report date range.
+     */
+    private function getReturnSummary(string $from, string $to): array
+    {
+        $q = \App\Models\ReturnUniformItemLine::query()
+            ->join('return_uniform_items', 'return_uniform_items.id', '=', 'return_uniform_item_lines.return_uniform_item_id')
+            ->join('uniform_items', 'uniform_items.id', '=', 'return_uniform_item_lines.uniform_item_id')
+            ->join('uniform_categories', 'uniform_categories.id', '=', 'uniform_items.uniform_category_id')
+            ->leftJoin('uniform_item_variants', 'uniform_item_variants.id', '=', 'return_uniform_item_lines.uniform_item_variant_id')
+            ->where('return_uniform_item_lines.add_to_stock', true)
+            ->where('return_uniform_items.status', 'returned')
+            ->whereBetween('return_uniform_items.returned_at', [$from, $to])
+            ->select(
+                'uniform_items.uniform_item_name as item_name',
+                'uniform_categories.uniform_category_name as category_name',
+                'uniform_item_variants.uniform_item_size as size',
+                'return_uniform_item_lines.returned_quantity',
+                'return_uniform_items.returned_at',
+            )
+            ->orderBy('return_uniform_items.returned_at');
+
+        if ($this->item_id)     $q->where('return_uniform_item_lines.uniform_item_id', $this->item_id);
+        if ($this->variant_id)  $q->where('return_uniform_item_lines.uniform_item_variant_id', $this->variant_id);
+        if ($this->category_id) $q->where('uniform_items.uniform_category_id', $this->category_id);
+
+        return $q->get()->toArray();
     }
 
     // ── Filter option lists ───────────────────────────────────────────────────

@@ -52,3 +52,10 @@ Route::get('/assets/print-property-tags', [AssetPropertyTagController::class, 'b
     ->name('assets.property-tags.bulk')
     ->middleware('auth');
 
+Route::get('/uniform-stock-flow/report', [
+    \App\Http\Controllers\UniformStockFlowReportController::class, 'download'
+])->name('uniform-stock-flow.report')->middleware(['auth']);
+
+Route::get('/sme-stock-flow/report', [
+    \App\Http\Controllers\SmeStockFlowReportController::class, 'download'
+])->name('sme-stock-flow.report')->middleware(['auth']);
