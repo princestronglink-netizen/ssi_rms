@@ -22,6 +22,7 @@ use Filament\Navigation\MenuItem;
 use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use App\Filament\Pages\PosOfficeSupplyRequest;
+use App\Filament\Pages\UniformStockFlow;
 
 class SuperadminPanelProvider extends PanelProvider
 {
@@ -49,6 +50,7 @@ class SuperadminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
                 PosOfficeSupplyRequest::class,
+                UniformStockFlow::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
@@ -90,11 +92,15 @@ class SuperadminPanelProvider extends PanelProvider
                     ->label('Billing Management')
                     ->collapsed(false), 
                 NavigationGroup::make()
+                    ->label('Reports')
+                    ->collapsed(false),
+                NavigationGroup::make()
                     ->label('User Management')
                     ->collapsed(false),
                 NavigationGroup::make()
                     ->label('Filament Shield')
                     ->collapsed(false),
+                
             ]);
     }
 }
