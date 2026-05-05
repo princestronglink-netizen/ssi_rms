@@ -22,41 +22,65 @@ class UniformStockFlow extends Page implements HasForms
     protected static ?int $navigationSort = 5;
     protected string $view = 'filament.pages.uniform-stock-flow';
 
+    // ── Main dashboard filters (KPIs + Chart) ────────────────────────────────
     public ?string $category_id = null;
     public ?string $item_id     = null;
     public ?string $variant_id  = null;
     public ?string $date_from   = null;
     public ?string $date_to     = null;
 
+    // ── Issuance Summary independent filters ─────────────────────────────────
+    public ?string $summary_category_id = null;
+    public ?string $summary_item_id     = null;
+    public ?string $summary_variant_id  = null;
+    public ?string $summary_date_from   = null;
+    public ?string $summary_date_to     = null;
+
     public string $summary_tab = 'item';
 
     // ── Report generation state ───────────────────────────────────────────────
-    public bool   $report_generating = false;
+    public bool $report_generating = false;
 
     public function mount(): void
     {
-        $this->date_from = now()->startOfYear()->toDateString();
-        $this->date_to   = now()->toDateString();
+        $this->date_from         = now()->startOfYear()->toDateString();
+        $this->date_to           = now()->toDateString();
+        $this->summary_date_from = $this->date_from;
+        $this->summary_date_to   = $this->date_to;
     }
 
-    // ── Dispatch chart data to JS on every filter change ─────────────────────
+    // ── Dispatch chart data to JS on every main filter change ─────────────────
 
     private function dispatchChartData(): void
     {
         $this->dispatch('sf-chart-update', ...$this->getFlowChartData());
     }
 
-    public function updatedCategoryId(): void  { $this->dispatchChartData(); }
-    public function updatedItemId(): void       { $this->dispatchChartData(); }
-    public function updatedVariantId(): void    { $this->dispatchChartData(); }
-    public function updatedDateFrom(): void     { $this->dispatchChartData(); }
-    public function updatedDateTo(): void       { $this->dispatchChartData(); }
+    public function updatedCategoryId(): void { $this->dispatchChartData(); }
+    public function updatedItemId(): void      { $this->dispatchChartData(); }
+    public function updatedVariantId(): void   { $this->dispatchChartData(); }
+    public function updatedDateFrom(): void    { $this->dispatchChartData(); }
+    public function updatedDateTo(): void      { $this->dispatchChartData(); }
+
+    // ── Summary filter watchers (cascade: clear child when parent changes) ────
+
+    public function updatedSummaryCategoryId(): void
+    {
+        // If category changes, reset item & variant so stale values don't filter
+        $this->summary_item_id    = null;
+        $this->summary_variant_id = null;
+    }
+
+    public function updatedSummaryItemId(): void
+    {
+        // If item changes, reset variant
+        $this->summary_variant_id = null;
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /**
-     * Base query for issuance items — always applies date filter + status filter.
-     * Includes issuance_type from uniform_issuances.
+     * Base query for the main KPI / chart issuance data.
      */
     private function baseIssuanceQuery(): \Illuminate\Database\Eloquent\Builder
     {
@@ -73,6 +97,38 @@ class UniformStockFlow extends Page implements HasForms
             ->leftJoin('uniform_issuance_types', 'uniform_issuance_types.id', '=', 'uniform_issuances.uniform_issuance_type_id')
             ->whereIn('uniform_issuances.uniform_issuance_status', ['issued', 'partial'])
             ->whereBetween('uniform_issuances.issued_at', [$from, $to]);
+    }
+
+    /**
+     * Base query for the Issuance Summary section — uses its own independent filters.
+     */
+    private function summaryIssuanceQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $from = $this->summary_date_from ?? now()->startOfYear()->toDateString();
+        $to   = $this->summary_date_to   ?? now()->toDateString();
+
+        $q = \App\Models\UniformIssuanceItems::query()
+            ->join('uniform_issuance_recipients', 'uniform_issuance_recipients.id', '=', 'uniform_issuance_items.uniform_issuance_recipient_id')
+            ->join('uniform_issuances', 'uniform_issuances.id', '=', 'uniform_issuance_recipients.uniform_issuance_id')
+            ->join('uniform_items', 'uniform_items.id', '=', 'uniform_issuance_items.uniform_item_id')
+            ->join('uniform_categories', 'uniform_categories.id', '=', 'uniform_items.uniform_category_id')
+            ->leftJoin('uniform_item_variants', 'uniform_item_variants.id', '=', 'uniform_issuance_items.uniform_item_variant_id')
+            ->leftJoin('sites', 'sites.id', '=', 'uniform_issuances.site_id')
+            ->leftJoin('uniform_issuance_types', 'uniform_issuance_types.id', '=', 'uniform_issuances.uniform_issuance_type_id')
+            ->whereIn('uniform_issuances.uniform_issuance_status', ['issued', 'partial'])
+            ->whereBetween('uniform_issuances.issued_at', [$from, $to]);
+
+        if ($this->summary_category_id) {
+            $q->where('uniform_items.uniform_category_id', $this->summary_category_id);
+        }
+        if ($this->summary_item_id) {
+            $q->where('uniform_issuance_items.uniform_item_id', $this->summary_item_id);
+        }
+        if ($this->summary_variant_id) {
+            $q->where('uniform_issuance_items.uniform_item_variant_id', $this->summary_variant_id);
+        }
+
+        return $q;
     }
 
     // ── Chart data ───────────────────────────────────────────────────────────
@@ -184,11 +240,11 @@ class UniformStockFlow extends Page implements HasForms
         ];
     }
 
-    // ── Issuance Summary — includes issuance_type ─────────────────────────────
+    // ── Issuance Summary — uses independent summary filters ──────────────────
 
     public function getIssuanceSummary(): array
     {
-        $rows = $this->baseIssuanceQuery()
+        $rows = $this->summaryIssuanceQuery()
             ->select(
                 'uniform_issuance_items.released_quantity',
                 'uniform_items.uniform_item_name as item_name',
@@ -203,11 +259,11 @@ class UniformStockFlow extends Page implements HasForms
         if ($this->summary_tab === 'item') {
             return $rows->groupBy('item_name')
                 ->map(fn ($group, $name) => [
-                    'label'    => $name,
-                    'category' => $group->first()->category_name ?? '—',
-                    'total'    => $group->sum('released_quantity'),
+                    'label'          => $name,
+                    'category'       => $group->first()->category_name ?? '—',
+                    'total'          => $group->sum('released_quantity'),
                     'issuance_types' => $group->groupBy('issuance_type')
-                        ->map(fn ($tg, $type) => [
+                        ->map(fn ($tg) => [
                             'subtotal' => $tg->sum('released_quantity'),
                             'sizes'    => $tg->groupBy('variant_size')
                                 ->map(fn ($sg) => $sg->sum('released_quantity'))
@@ -225,10 +281,10 @@ class UniformStockFlow extends Page implements HasForms
         if ($this->summary_tab === 'site') {
             return $rows->groupBy('site_name')
                 ->map(fn ($group, $site) => [
-                    'label' => $site ?? 'Unknown',
-                    'total' => $group->sum('released_quantity'),
+                    'label'          => $site ?? 'Unknown',
+                    'total'          => $group->sum('released_quantity'),
                     'issuance_types' => $group->groupBy('issuance_type')
-                        ->map(fn ($tg, $type) => [
+                        ->map(fn ($tg) => [
                             'subtotal' => $tg->sum('released_quantity'),
                             'items'    => $tg->groupBy('item_name')
                                 ->map(fn ($ig) => $ig->sum('released_quantity'))
@@ -246,11 +302,11 @@ class UniformStockFlow extends Page implements HasForms
         // By person
         return $rows->groupBy('person_name')
             ->map(fn ($group, $person) => [
-                'label' => trim($person) ?: 'Unknown',
-                'site'  => $group->first()->site_name ?? '—',
-                'total' => $group->sum('released_quantity'),
+                'label'          => trim($person) ?: 'Unknown',
+                'site'           => $group->first()->site_name ?? '—',
+                'total'          => $group->sum('released_quantity'),
                 'issuance_types' => $group->groupBy('issuance_type')
-                    ->map(fn ($tg, $type) => [
+                    ->map(fn ($tg) => [
                         'subtotal' => $tg->sum('released_quantity'),
                         'items'    => $tg->groupBy('item_name')
                             ->map(fn ($ig) => $ig->sum('released_quantity'))
@@ -267,18 +323,8 @@ class UniformStockFlow extends Page implements HasForms
 
     // ── Report Generation ────────────────────────────────────────────────────
 
-    /**
-     * Triggered by the JS modal "Generate & Download" button.
-     * Dispatches to a dedicated export action/job.
-     *
-     * @param  string   $date_from
-     * @param  string   $date_to
-     * @param  string[] $sections  e.g. ['stock_summary', 'issuances', 'restocks', 'returns', ...]
-     * @param  string   $format    'pdf' | 'xlsx' | 'csv'
-     */
     public function generateReport(string $date_from, string $date_to, array $sections = [], string $format = 'pdf'): void
     {
-        // Temporarily override filters so the data helpers use the report's range
         $originalFrom = $this->date_from;
         $originalTo   = $this->date_to;
 
@@ -286,18 +332,17 @@ class UniformStockFlow extends Page implements HasForms
         $this->date_to   = $date_to;
 
         $payload = [
-            'date_from'    => $date_from,
-            'date_to'      => $date_to,
-            'sections'     => $sections,
-            'format'       => $format,
-            'category_id'  => $this->category_id,
-            'item_id'      => $this->item_id,
-            'variant_id'   => $this->variant_id,
-            'metrics'      => $this->getMetrics(),
-            'chart_data'   => $this->getFlowChartData(),
+            'date_from'   => $date_from,
+            'date_to'     => $date_to,
+            'sections'    => $sections,
+            'format'      => $format,
+            'category_id' => $this->category_id,
+            'item_id'     => $this->item_id,
+            'variant_id'  => $this->variant_id,
+            'metrics'     => $this->getMetrics(),
+            'chart_data'  => $this->getFlowChartData(),
         ];
 
-        // Include requested section data
         if (in_array('issuances', $sections) || in_array('issuance_by_site', $sections) || in_array('issuance_by_person', $sections)) {
             $savedTab = $this->summary_tab;
 
@@ -320,24 +365,16 @@ class UniformStockFlow extends Page implements HasForms
         if (in_array('stock_summary', $sections)) {
             $payload['stock_summary'] = $this->getStockSummary();
         }
-
         if (in_array('restocks', $sections)) {
             $payload['restocks'] = $this->getRestockSummary($date_from, $date_to);
         }
-
         if (in_array('returns', $sections)) {
             $payload['returns'] = $this->getReturnSummary($date_from, $date_to);
         }
 
-        // Restore original filter range
         $this->date_from = $originalFrom;
         $this->date_to   = $originalTo;
 
-        // TODO: Hand off to your export service, e.g.:
-        // UniformStockFlowExport::dispatch($payload);
-        // Or: return response()->download(UniformStockFlowExport::make($payload));
-
-        // For now, notify the user the report is being prepared
         $this->dispatch('notify', [
             'title'  => 'Report Queued',
             'body'   => "Your {$format} report ({$date_from} → {$date_to}) is being prepared.",
@@ -345,9 +382,8 @@ class UniformStockFlow extends Page implements HasForms
         ]);
     }
 
-    /**
-     * Current stock per item variant — used in report generation.
-     */
+    // ── Stock / Restock / Return summaries for report ────────────────────────
+
     public function getStockSummary(): array
     {
         $q = \App\Models\UniformItemVariants::query()
@@ -371,9 +407,6 @@ class UniformStockFlow extends Page implements HasForms
         return $q->get()->toArray();
     }
 
-    /**
-     * Restock summary for the report date range.
-     */
     private function getRestockSummary(string $from, string $to): array
     {
         $q = \App\Models\UniformRestockItems::query()
@@ -399,9 +432,6 @@ class UniformStockFlow extends Page implements HasForms
         return $q->get()->toArray();
     }
 
-    /**
-     * Return summary for the report date range.
-     */
     private function getReturnSummary(string $from, string $to): array
     {
         $q = \App\Models\ReturnUniformItemLine::query()
@@ -430,6 +460,7 @@ class UniformStockFlow extends Page implements HasForms
 
     // ── Filter option lists ───────────────────────────────────────────────────
 
+    /** Options for the main dashboard Category filter */
     public function getCategoryOptions(): array
     {
         return \App\Models\UniformCategory::orderBy('uniform_category_name')
@@ -437,6 +468,7 @@ class UniformStockFlow extends Page implements HasForms
             ->toArray();
     }
 
+    /** Options for the main dashboard Item filter */
     public function getItemOptions(): array
     {
         $q = \App\Models\UniformItems::orderBy('uniform_item_name');
@@ -444,13 +476,28 @@ class UniformStockFlow extends Page implements HasForms
         return $q->pluck('uniform_item_name', 'id')->toArray();
     }
 
+    /** Options for the main dashboard Variant filter */
     public function getVariantOptions(): array
     {
         $q = \App\Models\UniformItemVariants::orderBy('uniform_item_size');
         if ($this->item_id) $q->where('uniform_item_id', $this->item_id);
-        return $q->get()
-            ->mapWithKeys(fn ($v) => [$v->id => $v->uniform_item_size])
-            ->toArray();
+        return $q->get()->mapWithKeys(fn ($v) => [$v->id => $v->uniform_item_size])->toArray();
+    }
+
+    /** Options for the Summary panel Item filter (respects summary_category_id) */
+    public function getSummaryItemOptions(): array
+    {
+        $q = \App\Models\UniformItems::orderBy('uniform_item_name');
+        if ($this->summary_category_id) $q->where('uniform_category_id', $this->summary_category_id);
+        return $q->pluck('uniform_item_name', 'id')->toArray();
+    }
+
+    /** Options for the Summary panel Variant filter (respects summary_item_id) */
+    public function getSummaryVariantOptions(): array
+    {
+        $q = \App\Models\UniformItemVariants::orderBy('uniform_item_size');
+        if ($this->summary_item_id) $q->where('uniform_item_id', $this->summary_item_id);
+        return $q->get()->mapWithKeys(fn ($v) => [$v->id => $v->uniform_item_size])->toArray();
     }
 
     // ── Actions ──────────────────────────────────────────────────────────────
@@ -460,6 +507,7 @@ class UniformStockFlow extends Page implements HasForms
         $this->summary_tab = $tab;
     }
 
+    /** Reset main dashboard filters */
     public function resetFlowFilters(): void
     {
         $this->category_id = null;
@@ -468,5 +516,22 @@ class UniformStockFlow extends Page implements HasForms
         $this->date_from   = now()->startOfYear()->toDateString();
         $this->date_to     = now()->toDateString();
         $this->dispatchChartData();
+    }
+
+    /** Reset Issuance Summary filters */
+    public function resetSummaryFilters(): void
+    {
+        $this->summary_category_id = null;
+        $this->summary_item_id     = null;
+        $this->summary_variant_id  = null;
+        $this->summary_date_from   = now()->startOfYear()->toDateString();
+        $this->summary_date_to     = now()->toDateString();
+    }
+
+    /** Reset only the date range on the Issuance Summary (used by the × badge) */
+    public function resetSummaryDates(): void
+    {
+        $this->summary_date_from = $this->date_from ?? now()->startOfYear()->toDateString();
+        $this->summary_date_to   = $this->date_to   ?? now()->toDateString();
     }
 }

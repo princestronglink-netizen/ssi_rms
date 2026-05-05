@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Billings;
 
-use App\Filament\Resources\Billings\Pages\CreateBilling;
-use App\Filament\Resources\Billings\Pages\EditBilling;
 use App\Filament\Resources\Billings\Pages\ListBillings;
 use App\Filament\Resources\Billings\Schemas\BillingForm;
 use App\Filament\Resources\Billings\Tables\BillingsTable;
@@ -11,8 +9,8 @@ use App\Models\Billing;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class BillingResource extends Resource
 {
@@ -20,18 +18,36 @@ class BillingResource extends Resource
 
     protected static BackedEnum|string|null $navigationIcon = 'fas-file-invoice';
 
+    /**
+     * Scope the Eloquent query so payroll users only see
+     * billings that belong to their assigned clients.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if ($user && ! $user->isManager()) {
+            // Only billings whose client_id is in the user's assigned clients
+            $assignedClientIds = $user->assignedClients()->pluck('clients.id');
+            $query->whereIn('client_id', $assignedClientIds);
+        }
+
+        return $query;
+    }
+
     public static function getNavigationBadge(): ?string
     {
-        $count = static::getModel()::where('status', 'pending')->count();
-
+        // Badge respects the scoped query automatically
+        $count = static::getEloquentQuery()->where('status', 'pending')->count();
         return $count > 0 ? (string) $count : null;
     }
 
     public static function getNavigationBadgeColor(): ?string
     {
-        return 'danger'; // red
+        return 'danger';
     }
-    
+
     public static function getNavigationGroup(): ?string
     {
         return 'Billing Management';
@@ -49,9 +65,7 @@ class BillingResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            //
-        ];
+        return [];
     }
 
     public static function getPages(): array

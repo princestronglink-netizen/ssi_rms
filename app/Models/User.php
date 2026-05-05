@@ -10,7 +10,8 @@ use Spatie\Permission\Traits\HasRoles;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use BezhanSalleh\FilamentShield\Traits\HasPanelShield;
-use \Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -68,4 +69,31 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->belongsTo(Departments::class);
     }
+
+    // App\Models\User.php — add inside the class
+
+    public function assignedClients(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Clients::class,
+            'client_user',  
+            'user_id',      
+            'client_id'     
+        );
+    }
+
+    /**
+     * True if this user is a manager / can see all records.
+     * Adjust the role check to match your auth setup.
+     */
+    public function isManager(): bool
+    {
+        // Example using Spatie roles:
+        return $this->hasRole(['payroll_manager', 'super_admin']);
+        
+        // Example using a column:
+        // return in_array($this->role, ['manager', 'admin', 'super_admin']);
+    }
+
+
 }

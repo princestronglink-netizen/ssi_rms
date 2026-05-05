@@ -22,6 +22,7 @@ class SmeStockFlow extends Page implements HasForms
     protected static ?int $navigationSort = 6;
     protected string $view = 'filament.pages.sme-stock-flow';
 
+    // ── Main dashboard filters (KPIs + Chart) ────────────────────────────────
     public ?string $category_id = null;
     public ?string $item_id     = null;
     public ?string $variant_id  = null;
@@ -29,15 +30,25 @@ class SmeStockFlow extends Page implements HasForms
     public ?string $date_from   = null;
     public ?string $date_to     = null;
 
+    // ── PO Summary independent filters ───────────────────────────────────────
+    public ?string $summary_category_id = null;
+    public ?string $summary_item_id     = null;
+    public ?string $summary_variant_id  = null;
+    public ?string $summary_site_id     = null;
+    public ?string $summary_date_from   = null;
+    public ?string $summary_date_to     = null;
+
     public string $summary_tab = 'item';
 
     public function mount(): void
     {
-        $this->date_from = now()->startOfYear()->toDateString();
-        $this->date_to   = now()->toDateString();
+        $this->date_from         = now()->startOfYear()->toDateString();
+        $this->date_to           = now()->toDateString();
+        $this->summary_date_from = $this->date_from;
+        $this->summary_date_to   = $this->date_to;
     }
 
-    // ── Dispatch chart data to JS on every filter change ─────────────────────
+    // ── Dispatch chart data to JS on every main filter change ─────────────────
 
     private function dispatchChartData(): void
     {
@@ -51,7 +62,20 @@ class SmeStockFlow extends Page implements HasForms
     public function updatedDateFrom(): void    { $this->dispatchChartData(); }
     public function updatedDateTo(): void      { $this->dispatchChartData(); }
 
-    // ── Base purchase-order (stock out) query ─────────────────────────────────
+    // ── Summary filter cascade watchers ──────────────────────────────────────
+
+    public function updatedSummaryCategoryId(): void
+    {
+        $this->summary_item_id    = null;
+        $this->summary_variant_id = null;
+    }
+
+    public function updatedSummaryItemId(): void
+    {
+        $this->summary_variant_id = null;
+    }
+
+    // ── Base purchase-order (stock out) query — for KPIs/chart ───────────────
 
     private function basePurchaseOrderQuery(): \Illuminate\Database\Eloquent\Builder
     {
@@ -71,6 +95,30 @@ class SmeStockFlow extends Page implements HasForms
         if ($this->variant_id)  $q->where('sme_purchase_order_items.sme_item_variant_id', $this->variant_id);
         if ($this->category_id) $q->where('sme_items.sme_category_id', $this->category_id);
         if ($this->site_id)     $q->where('sme_purchase_orders.site_id', $this->site_id);
+
+        return $q;
+    }
+
+    // ── Base purchase-order query for the Summary section (own filters) ───────
+
+    private function summaryPurchaseOrderQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $from = $this->summary_date_from ?? now()->startOfYear()->toDateString();
+        $to   = $this->summary_date_to   ?? now()->toDateString();
+
+        $q = \App\Models\SmePurchaseOrderItems::query()
+            ->join('sme_purchase_orders', 'sme_purchase_orders.id', '=', 'sme_purchase_order_items.sme_purchase_order_id')
+            ->join('sme_items', 'sme_items.id', '=', 'sme_purchase_order_items.sme_item_id')
+            ->join('sme_categories', 'sme_categories.id', '=', 'sme_items.sme_category_id')
+            ->leftJoin('sme_item_variants', 'sme_item_variants.id', '=', 'sme_purchase_order_items.sme_item_variant_id')
+            ->leftJoin('sites', 'sites.id', '=', 'sme_purchase_orders.site_id')
+            ->whereIn('sme_purchase_orders.status', ['approved'])
+            ->whereBetween('sme_purchase_orders.approved_at', [$from, $to]);
+
+        if ($this->summary_category_id) $q->where('sme_items.sme_category_id', $this->summary_category_id);
+        if ($this->summary_item_id)     $q->where('sme_purchase_order_items.sme_item_id', $this->summary_item_id);
+        if ($this->summary_variant_id)  $q->where('sme_purchase_order_items.sme_item_variant_id', $this->summary_variant_id);
+        if ($this->summary_site_id)     $q->where('sme_purchase_orders.site_id', $this->summary_site_id);
 
         return $q;
     }
@@ -187,11 +235,11 @@ class SmeStockFlow extends Page implements HasForms
         ];
     }
 
-    // ── Issuance (PO) Summary ─────────────────────────────────────────────────
+    // ── PO Summary — uses independent summary filters ─────────────────────────
 
     public function getIssuanceSummary(): array
     {
-        $rows = $this->basePurchaseOrderQuery()
+        $rows = $this->summaryPurchaseOrderQuery()
             ->select(
                 'sme_purchase_order_items.quantity as released_quantity',
                 'sme_items.sme_item_name as item_name',
@@ -325,6 +373,24 @@ class SmeStockFlow extends Page implements HasForms
             ->toArray();
     }
 
+    // ── Summary-specific filter option lists ──────────────────────────────────
+
+    public function getSummaryItemOptions(): array
+    {
+        $q = \App\Models\SmeItems::orderBy('sme_item_name');
+        if ($this->summary_category_id) $q->where('sme_category_id', $this->summary_category_id);
+        return $q->pluck('sme_item_name', 'id')->toArray();
+    }
+
+    public function getSummaryVariantOptions(): array
+    {
+        $q = \App\Models\SmeItemVariants::orderBy('sme_item_size');
+        if ($this->summary_item_id) $q->where('sme_item_id', $this->summary_item_id);
+        return $q->get()
+            ->mapWithKeys(fn ($v) => [$v->id => $v->sme_item_size])
+            ->toArray();
+    }
+
     // ── Actions ──────────────────────────────────────────────────────────────
 
     public function setSummaryTab(string $tab): void
@@ -341,5 +407,21 @@ class SmeStockFlow extends Page implements HasForms
         $this->date_from   = now()->startOfYear()->toDateString();
         $this->date_to     = now()->toDateString();
         $this->dispatchChartData();
+    }
+
+    public function resetSummaryFilters(): void
+    {
+        $this->summary_category_id = null;
+        $this->summary_item_id     = null;
+        $this->summary_variant_id  = null;
+        $this->summary_site_id     = null;
+        $this->summary_date_from   = now()->startOfYear()->toDateString();
+        $this->summary_date_to     = now()->toDateString();
+    }
+
+    public function resetSummaryDates(): void
+    {
+        $this->summary_date_from = $this->date_from ?? now()->startOfYear()->toDateString();
+        $this->summary_date_to   = $this->date_to   ?? now()->toDateString();
     }
 }

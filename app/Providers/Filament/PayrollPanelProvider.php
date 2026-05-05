@@ -20,6 +20,7 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Navigation\MenuItem;
 use App\Filament\Resources\Billings\BillingResource;
+use App\Filament\Resources\SmeBillings\SmeBillingResource;
 use App\Filament\Resources\UniformIssuanceBillings\UniformIssuanceBillingResource;
 use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -42,7 +43,7 @@ class PayrollPanelProvider extends PanelProvider
             ->resources([
                BillingResource::class,
                UniformIssuanceBillingResource::class,
-
+               SmeBillingResource::class,
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),

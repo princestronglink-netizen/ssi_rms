@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\Transmittals\Schemas;
 
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Grid;
+use Filament\Schemas\Components\Grid;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -15,17 +15,21 @@ class TransmittalsForm
     {
         return $schema
             ->components([
-                Grid::make(2)
+                Grid::make(3)
                     ->schema([
                         TextInput::make('uniform_issuance_id')
-                            ->numeric(),
+                            ->numeric()
+                            ->hidden(),
                         TextInput::make('transmittal_number')
+                            ->default(fn () => \App\Models\Transmittals::generateNumber())
+                            ->readOnly()
                             ->required(),
                         TextInput::make('transmitted_by')
                             ->required(),
                         TextInput::make('transmitted_to')
                             ->required(),
-                    ]),
+                    ])
+                    ->columnSpanFull(),
 
                 Repeater::make('items_summary')
                     ->label('Items Summary')
@@ -57,12 +61,16 @@ class TransmittalsForm
                         TextInput::make('purpose'),
                         TextInput::make('instructions'),
                         DatePicker::make('transmitted_at')
+                            ->hidden()
+                            ->default(now()->timezone('Asia/Manila'))
                             ->required(),
                         Select::make('status')
                             ->options(['pending' => 'Pending', 'received' => 'Received'])
                             ->default('pending')
-                            ->required(),
-                    ]),
+                            ->required()
+                            ->hidden(),
+                    ])
+                    ->columnSpanFull(),
             ]);
     }
 }

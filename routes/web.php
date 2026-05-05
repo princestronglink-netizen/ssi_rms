@@ -59,3 +59,44 @@ Route::get('/uniform-stock-flow/report', [
 Route::get('/sme-stock-flow/report', [
     \App\Http\Controllers\SmeStockFlowReportController::class, 'download'
 ])->name('sme-stock-flow.report')->middleware(['auth']);
+
+Route::get('/office-supply-stock-flow/report', [
+    \App\Http\Controllers\OfficeSupplyStockFlowReportController::class, 'download'
+])->name('office-supply-stock-flow.report')->middleware(['auth']);
+
+Route::get('/uniform-items/template', function () {
+    $csv = <<<CSV
+uniform_category_name,uniform_item_name,uniform_item_description,uniform_item_price,variants
+Uniform Tops,Polo Shirt,Blue shirt,250,"M:10|L:15|XL:5"
+Uniform Bottoms,Pants,Black pants,400,"S:5|M:10|L:8"
+CSV;
+
+    return response($csv)
+        ->header('Content-Type', 'text/csv')
+        ->header('Content-Disposition', 'attachment; filename="uniform_items_template.csv"');
+})->name('uniform-items.template');
+
+Route::get('/sme-items/template', function () {
+    $csv = <<<CSV
+sme_category_name,sme_item_name,sme_item_brand,sme_item_description,sme_item_price,variants
+School Supplies,Ballpen,Pilot,Black ballpen,15,"Small:100|Medium:50"
+School Supplies,Notebook,Pee,Thick notebook,45,"Small:30|Large:20"
+CSV;
+
+    return response($csv)
+        ->header('Content-Type', 'text/csv')
+        ->header('Content-Disposition', 'attachment; filename="sme_items_template.csv"');
+})->name('sme-items.template');
+
+Route::get('/office-supply-items/template', function () {
+    $csv = <<<CSV
+office_supply_category_name,office_supply_name,office_supply_description,office_supply_price,variants
+Writing,Ballpen,Black ink ballpen,15,Black:100|Blue:50|Red:30
+Paper,Bond Paper,A4 size bond paper,250,Short:100|Long:80
+Filing,Folder,Brown folder,10,Short:50|Long:50
+CSV;
+
+    return response($csv)
+        ->header('Content-Type', 'text/csv')
+        ->header('Content-Disposition', 'attachment; filename="office_supply_items_template.csv"');
+})->name('office-supply-items.template');

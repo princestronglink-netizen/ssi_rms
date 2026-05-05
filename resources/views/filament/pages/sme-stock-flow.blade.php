@@ -20,6 +20,7 @@
 .sf-header-title { font-size:13px; font-weight:700; color:var(--cl-text,#0e1b34); letter-spacing:-0.01em; font-family:'Syne',sans-serif; }
 .sf-header-sub   { font-size:11px; color:var(--cl-text-3,#7f96b6); margin-top:2px; font-family:'DM Sans',sans-serif; }
 
+/* ── Main filter row ── */
 .sf-filters {
     display:grid; grid-template-columns:repeat(6,1fr) auto;
     gap:12px; padding:14px 20px 18px; align-items:end;
@@ -50,6 +51,7 @@
     border-color:var(--cl-border,rgba(22,109,245,0.15));
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d6080' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 }
+.dark .sf-date { background-image:none; }
 .sf-reset-btn {
     display:inline-flex; align-items:center; gap:6px;
     padding:8px 14px; font-size:12px; font-weight:600;
@@ -59,6 +61,7 @@
 }
 .sf-reset-btn:hover { background:rgba(22,109,245,0.08); }
 
+/* ── KPIs ── */
 .sf-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
 @media(max-width:900px){ .sf-kpi-grid{ grid-template-columns:repeat(2,1fr); } }
 @media(max-width:480px){ .sf-kpi-grid{ grid-template-columns:1fr; } }
@@ -77,13 +80,11 @@
 .sf-kpi--out::before   { background:linear-gradient(90deg,#dc2626,#f87171); }
 .sf-kpi--net::before   { background:linear-gradient(90deg,#7c3aed,#a78bfa); }
 .sf-kpi--stock::before { background:linear-gradient(90deg,#0369a1,#38bdf8); }
-
 .sf-kpi-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin-bottom:10px; font-size:16px; }
 .sf-kpi--in    .sf-kpi-icon { background:rgba(22,163,74,0.1);  color:#16a34a; }
 .sf-kpi--out   .sf-kpi-icon { background:rgba(220,38,38,0.1);  color:#dc2626; }
 .sf-kpi--net   .sf-kpi-icon { background:rgba(124,58,237,0.1); color:#7c3aed; }
 .sf-kpi--stock .sf-kpi-icon { background:rgba(3,105,161,0.1);  color:#0369a1; }
-
 .sf-kpi-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--cl-text-3,#7f96b6); font-family:'IBM Plex Mono',monospace; }
 .sf-kpi-value { font-size:28px; font-weight:700; font-family:'IBM Plex Mono',monospace; margin-top:4px; line-height:1.1; }
 .sf-kpi-sub   { font-size:11px; color:var(--cl-text-3,#7f96b6); margin-top:3px; font-family:'DM Sans',sans-serif; }
@@ -92,12 +93,14 @@
 .sf-kpi--net   .sf-kpi-value { color:#7c3aed; }
 .sf-kpi--stock .sf-kpi-value { color:#0369a1; }
 
+/* ── Chart ── */
 .sf-chart-body { padding:14px 20px 20px; height:310px; }
 
+/* ── Tabs ── */
 .sf-tabs {
     display:flex; gap:0;
     border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.12));
-    padding:0 20px; margin-top:4px;
+    padding:0 20px; margin-top:0;
 }
 .sf-tab {
     padding:10px 16px; font-size:12px; font-weight:600;
@@ -110,6 +113,97 @@
 .sf-tab:hover { color:rgb(22,109,245); }
 .sf-tab--active { color:rgb(22,109,245); border-bottom-color:rgb(22,109,245); }
 
+/* ══ SUMMARY INDEPENDENT FILTER ZONE ══ */
+.sf-summary-filter-zone {
+    margin:0;
+    border-top:1px solid var(--cl-border,rgba(22,109,245,0.10));
+    border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.10));
+    background:linear-gradient(to bottom,rgba(22,109,245,0.035),rgba(22,109,245,0.015));
+    padding:14px 20px 12px;
+}
+.dark .sf-summary-filter-zone {
+    background:linear-gradient(to bottom,rgba(22,109,245,0.07),rgba(22,109,245,0.03));
+}
+.sf-summary-filter-zone-title {
+    display:flex; align-items:center; gap:8px; margin-bottom:12px;
+}
+.sf-summary-filter-zone-label {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.1em; color:rgb(22,109,245);
+    font-family:'IBM Plex Mono',monospace;
+    display:flex; align-items:center; gap:6px;
+}
+.sf-summary-filter-zone-label::before {
+    content:''; display:inline-block; width:6px; height:6px;
+    border-radius:50%; background:rgb(22,109,245);
+    box-shadow:0 0 0 2px rgba(22,109,245,0.2);
+}
+.sf-summary-filter-zone-sep { flex:1; height:1px; background:rgba(22,109,245,0.15); }
+.sf-summary-filter-scope-badge {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:3px 9px; border-radius:6px;
+    font-size:10px; font-weight:700; font-family:'IBM Plex Mono',monospace;
+    background:rgba(22,109,245,0.1); color:rgb(22,109,245);
+    border:1px solid rgba(22,109,245,0.2); white-space:nowrap;
+}
+
+/* Summary filter grid */
+.sf-summary-filter-grid {
+    display:grid; grid-template-columns:repeat(6,1fr) auto;
+    gap:10px; align-items:end;
+}
+@media(max-width:1200px){ .sf-summary-filter-grid{ grid-template-columns:repeat(3,1fr); } .sf-summary-reset-col{ grid-column:1/-1; } }
+@media(max-width:640px){ .sf-summary-filter-grid{ grid-template-columns:1fr 1fr; } }
+
+/* Summary-scoped selects — tinted blue to reinforce independence */
+.sf-summary-select,.sf-summary-date {
+    width:100%; padding:8px 28px 8px 10px; font-size:12.5px;
+    font-family:'DM Sans',sans-serif; font-weight:500; border-radius:10px;
+    border:1px solid rgba(22,109,245,0.2);
+    background:rgba(22,109,245,0.04); color:var(--cl-text,#0e1b34);
+    transition:border-color .18s,box-shadow .18s;
+    appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231669f5' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 10px center;
+    background-color:rgba(22,109,245,0.04);
+}
+.sf-summary-date { background-image:none; padding-right:10px; }
+.sf-summary-select:focus,.sf-summary-date:focus {
+    outline:none; border-color:rgba(22,109,245,0.55);
+    box-shadow:0 0 0 3px rgba(22,109,245,0.15);
+}
+.dark .sf-summary-select,.dark .sf-summary-date {
+    background-color:rgba(22,109,245,0.08); color:var(--cl-text,#e8edf7);
+    border-color:rgba(22,109,245,0.25);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d8cf5' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+.dark .sf-summary-date { background-image:none; }
+
+/* Active filter badges */
+.sf-summary-active-badges {
+    display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+    margin-top:10px; padding-top:10px;
+    border-top:1px dashed rgba(22,109,245,0.15);
+}
+.sf-summary-active-badges-label {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--cl-text-3,#7f96b6);
+    font-family:'IBM Plex Mono',monospace; margin-right:2px; white-space:nowrap;
+}
+.sf-filter-active-badge {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:3px 8px; border-radius:6px;
+    font-size:10.5px; font-weight:600;
+    background:rgba(22,109,245,0.1); color:rgb(22,109,245);
+    border:1px solid rgba(22,109,245,0.2); font-family:'IBM Plex Mono',monospace;
+}
+.sf-filter-active-badge button {
+    background:none; border:none; cursor:pointer; color:inherit;
+    padding:0; line-height:1; font-size:12px; margin-left:2px; opacity:.6;
+}
+.sf-filter-active-badge button:hover { opacity:1; }
+
+/* ── Summary Table ── */
 .sf-summary-body { padding:16px 20px 20px; }
 .sf-table { width:100%; border-collapse:collapse; }
 .sf-table thead th {
@@ -165,13 +259,11 @@
 .dark .sf-type-block { background:rgba(22,109,245,0.04); }
 .sf-type-block-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px; }
 .sf-type-block-total { font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:700; background:rgba(22,109,245,0.08); color:rgb(22,109,245); padding:1px 8px; border-radius:6px; }
-
 .sf-size-list { display:flex; flex-direction:column; gap:2px; padding-left:4px; }
 .sf-size-row  { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:2px 4px; border-radius:5px; }
 .sf-size-row:hover { background:rgba(22,109,245,0.05); }
 .sf-size-name { font-size:11.5px; color:var(--cl-text-3,#7f96b6); font-family:'DM Sans',sans-serif; min-width:40px; }
 .sf-size-qty  { font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:700; color:var(--cl-text,#0e1b34); }
-
 .sf-empty { text-align:center; color:var(--cl-text-3,#7f96b6); font-size:12px; padding:28px 0; font-family:'DM Sans',sans-serif; }
 
 .sf-legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
@@ -192,7 +284,7 @@
 .sf-gen-report-btn::before { content:''; position:absolute; inset:0; background:linear-gradient(135deg,rgba(255,255,255,0.15) 0%,transparent 60%); pointer-events:none; }
 .sf-gen-report-btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(22,109,245,0.45); filter:brightness(1.05); }
 
-/* Modal */
+/* ── Modal ── */
 .sf-modal-overlay {
     position:fixed; inset:0; z-index:9999;
     background:rgba(9,16,32,0.65); backdrop-filter:blur(6px);
@@ -208,7 +300,6 @@
     transform:translateY(28px) scale(0.97); transition:transform .28s cubic-bezier(.34,1.56,.64,1);
 }
 .sf-modal-overlay.sf-modal--open .sf-modal { transform:translateY(0) scale(1); }
-
 .sf-modal-header {
     display:flex; align-items:flex-start; justify-content:space-between;
     padding:22px 24px 16px; gap:12px;
@@ -227,7 +318,6 @@
 }
 .sf-modal-close:hover { background:rgba(220,38,38,0.08); color:#dc2626; border-color:rgba(220,38,38,0.2); }
 .sf-modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:20px; }
-
 .sf-modal-section { display:flex; flex-direction:column; gap:8px; }
 .sf-modal-section-title {
     font-size:10px; font-weight:700; text-transform:uppercase;
@@ -235,12 +325,9 @@
     font-family:'IBM Plex Mono',monospace; display:flex; align-items:center; gap:6px;
 }
 .sf-modal-section-title::after { content:''; flex:1; height:1px; background:var(--cl-border,rgba(22,109,245,0.1)); }
-
 .sf-date-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-
 .sf-report-checkboxes { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 @media(max-width:480px){ .sf-report-checkboxes{ grid-template-columns:1fr; } }
-
 .sf-report-check {
     display:flex; align-items:center; gap:10px; padding:11px 14px;
     border:1px solid var(--cl-border,rgba(22,109,245,0.12)); border-radius:10px;
@@ -260,7 +347,6 @@
 .sf-report-check.sf-check--active { border-color:rgba(22,109,245,0.4); background:rgba(22,109,245,0.06); }
 .sf-report-check-label { font-size:12.5px; font-weight:600; color:var(--cl-text,#0e1b34); font-family:'DM Sans',sans-serif; }
 .sf-report-check-desc  { font-size:11px; color:var(--cl-text-3,#7f96b6); font-family:'DM Sans',sans-serif; }
-
 .sf-report-preview { border:1px solid var(--cl-border,rgba(22,109,245,0.12)); border-radius:12px; overflow:hidden; }
 .sf-report-preview-header { background:linear-gradient(135deg,rgb(22,109,245) 0%,#0ea5e9 100%); padding:14px 18px; display:flex; align-items:center; gap:10px; }
 .sf-report-preview-title { font-size:12px; font-weight:700; color:#fff; font-family:'Syne',sans-serif; }
@@ -269,7 +355,6 @@
 .dark .sf-report-sections { background:rgba(22,109,245,0.03); }
 .sf-report-section-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:7px; font-size:11px; font-weight:600; font-family:'IBM Plex Mono',monospace; background:var(--cl-base,#fff); border:1px solid var(--cl-border,rgba(22,109,245,0.15)); color:var(--cl-text,#0e1b34); }
 .sf-report-section-chip.sf-chip--active { background:rgba(22,109,245,0.1); color:rgb(22,109,245); border-color:rgba(22,109,245,0.25); }
-
 .sf-modal-footer {
     padding:16px 24px 20px; border-top:1px solid var(--cl-border,rgba(22,109,245,0.1));
     display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
@@ -298,17 +383,26 @@
     $metrics   = $this->getMetrics();
     $chartData = $this->getFlowChartData();
     $summary   = $this->getIssuanceSummary();
+
+    // Summary active filter state
+    $summaryActiveFilters = array_filter([$summary_category_id, $summary_item_id, $summary_variant_id, $summary_site_id]);
+    $summaryDateDiff      = ($summary_date_from !== $date_from || $summary_date_to !== $date_to);
+    $activeSummaryCount   = count($summaryActiveFilters) + ($summaryDateDiff ? 1 : 0);
 @endphp
 
 <div class="sf-wrap">
 
-    {{-- ══ FILTER PANEL ══ --}}
+    {{-- ══ SECTION A — MAIN DASHBOARD FILTERS (KPIs + Chart) ══ --}}
     <div class="sf-panel">
         <div class="sf-header">
             <div>
                 <div class="sf-header-title">SME Stock Flow Dashboard</div>
                 <div class="sf-header-sub">Monitor SME inventory movement — restocks in, purchase orders out</div>
             </div>
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;font-size:10px;font-weight:700;font-family:'IBM Plex Mono',monospace;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.2);">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                Affects KPIs &amp; Chart
+            </span>
         </div>
         <div class="sf-filters">
             <div class="sf-field">
@@ -424,7 +518,7 @@
         </div>
     </div>
 
-    {{-- ══ PURCHASE ORDER SUMMARY ══ --}}
+    {{-- ══ SECTION B — PURCHASE ORDER SUMMARY (own independent filters) ══ --}}
     <div class="sf-panel">
         <div class="sf-header">
             <div>
@@ -440,6 +534,117 @@
             </div>
         </div>
 
+        {{-- ── DEDICATED INDEPENDENT FILTER ZONE ── --}}
+        <div class="sf-summary-filter-zone">
+            <div class="sf-summary-filter-zone-title">
+                <span class="sf-summary-filter-zone-label">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+                    PO Summary Filters
+                </span>
+                <span class="sf-summary-filter-zone-sep"></span>
+                <span class="sf-summary-filter-scope-badge">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Affects this table only
+                </span>
+            </div>
+
+            <div class="sf-summary-filter-grid">
+                <div class="sf-field">
+                    <span class="sf-label">Category</span>
+                    <select class="sf-summary-select" wire:model.live="summary_category_id">
+                        <option value="">All Categories</option>
+                        @foreach($this->getCategoryOptions() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="sf-field">
+                    <span class="sf-label">Item</span>
+                    <select class="sf-summary-select" wire:model.live="summary_item_id">
+                        <option value="">All Items</option>
+                        @foreach($this->getSummaryItemOptions() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="sf-field">
+                    <span class="sf-label">Size / Variant</span>
+                    <select class="sf-summary-select" wire:model.live="summary_variant_id">
+                        <option value="">All Sizes</option>
+                        @foreach($this->getSummaryVariantOptions() as $id => $size)
+                            <option value="{{ $id }}">{{ $size }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="sf-field">
+                    <span class="sf-label">Site</span>
+                    <select class="sf-summary-select" wire:model.live="summary_site_id">
+                        <option value="">All Sites</option>
+                        @foreach($this->getSiteOptions() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="sf-field">
+                    <span class="sf-label">Date From</span>
+                    <input type="date" class="sf-summary-date" wire:model.live.debounce.600ms="summary_date_from">
+                </div>
+                <div class="sf-field">
+                    <span class="sf-label">Date To</span>
+                    <input type="date" class="sf-summary-date" wire:model.live.debounce.600ms="summary_date_to">
+                </div>
+                <div class="sf-summary-reset-col" style="display:flex;align-items:flex-end;">
+                    <button wire:click="resetSummaryFilters" class="sf-reset-btn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            {{-- Active filter badges --}}
+            @if($activeSummaryCount > 0)
+            <div class="sf-summary-active-badges">
+                <span class="sf-summary-active-badges-label">Filtering by:</span>
+
+                @if($summary_category_id)
+                    @php $catName = $this->getCategoryOptions()[$summary_category_id] ?? $summary_category_id; @endphp
+                    <span class="sf-filter-active-badge">
+                        Category: {{ $catName }}
+                        <button wire:click="$set('summary_category_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summary_item_id)
+                    @php $itemName = $this->getSummaryItemOptions()[$summary_item_id] ?? $summary_item_id; @endphp
+                    <span class="sf-filter-active-badge">
+                        Item: {{ $itemName }}
+                        <button wire:click="$set('summary_item_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summary_variant_id)
+                    @php $varName = $this->getSummaryVariantOptions()[$summary_variant_id] ?? $summary_variant_id; @endphp
+                    <span class="sf-filter-active-badge">
+                        Size: {{ $varName }}
+                        <button wire:click="$set('summary_variant_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summary_site_id)
+                    @php $siteName = $this->getSiteOptions()[$summary_site_id] ?? $summary_site_id; @endphp
+                    <span class="sf-filter-active-badge">
+                        Site: {{ $siteName }}
+                        <button wire:click="$set('summary_site_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summaryDateDiff)
+                    <span class="sf-filter-active-badge">
+                        {{ \Carbon\Carbon::parse($summary_date_from)->format('M d, Y') }} → {{ \Carbon\Carbon::parse($summary_date_to)->format('M d, Y') }}
+                        <button wire:click="resetSummaryDates" title="Clear">×</button>
+                    </span>
+                @endif
+            </div>
+            @endif
+        </div>{{-- end .sf-summary-filter-zone --}}
+
+        {{-- Tabs --}}
         <div class="sf-tabs">
             <button wire:click="setSummaryTab('item')" class="sf-tab {{ $summary_tab === 'item' ? 'sf-tab--active' : '' }}">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
@@ -455,6 +660,7 @@
             </button>
         </div>
 
+        {{-- Summary table --}}
         <div class="sf-summary-body">
             <table class="sf-table">
                 <thead>

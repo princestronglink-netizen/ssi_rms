@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\belongsTo;
-
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class Clients extends Model
 {
     protected $fillable = [
@@ -40,5 +40,15 @@ class Clients extends Model
 
     public function getSiteNamesAttibute() {
         return $this->sites()->pluck('site_name')->toArray;
+    }
+
+    public function assignedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            User::class,
+            'client_user',  
+            'client_id',    
+            'user_id'       
+        );
     }
 }

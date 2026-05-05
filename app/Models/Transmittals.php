@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Transmittals extends Model
 {
@@ -38,7 +41,7 @@ class Transmittals extends Model
         return $this->belongsTo(UniformIssuances::class, 'uniform_issuance_id');
     }
 
-    public function issuances()
+    public function issuances(): BelongsToMany
     {
         return $this->belongsToMany(
             \App\Models\UniformIssuances::class,
@@ -46,6 +49,11 @@ class Transmittals extends Model
             'transmittal_id',
             'uniform_issuance_id'
         );
+    }
+    
+    public function logs(): HasMany
+    {
+        return $this->hasMany(TransmittalLog::class, 'transmittal_id')->latest();
     }
     
  
@@ -65,4 +73,6 @@ class Transmittals extends Model
  
         return $prefix . str_pad($next, 4, '0', STR_PAD_LEFT);
     }
+
+
 }

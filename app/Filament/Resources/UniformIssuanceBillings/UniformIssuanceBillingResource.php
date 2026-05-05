@@ -13,6 +13,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class UniformIssuanceBillingResource extends Resource
 {
@@ -59,5 +60,21 @@ class UniformIssuanceBillingResource extends Resource
         return [
             'index' => ListUniformIssuanceBillings::route('/'),
         ];
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if ($user && ! $user->isManager()) {
+            $assignedClientIds = $user->assignedClients()->pluck('clients.id');
+
+            $query->whereHas('uniformIssuance.site', function (Builder $q) use ($assignedClientIds) {
+                $q->whereIn('client_id', $assignedClientIds);
+            });
+        }
+
+        return $query;
     }
 }

@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Filament\Resources\Clients\Schemas;
 
 use Filament\Forms\Components\DatePicker;
@@ -32,6 +31,16 @@ class ClientsForm
                 Select::make('status')
                     ->options(['active' => 'Active', 'inactive' => 'Inactive'])
                     ->required(),
+
+                // ─── Payroll assignment ───────────────────────────────────
+                Select::make('assignedUsers')
+                    ->label('Assigned Payroll User(s)')
+                    ->relationship('assignedUsers', 'name')
+                    ->multiple()
+                    ->preload()
+                    ->searchable()
+                    ->helperText('Select which payroll users can manage this client\'s billings.')
+                    ->columnSpanFull(),
             ]);
     }
 }

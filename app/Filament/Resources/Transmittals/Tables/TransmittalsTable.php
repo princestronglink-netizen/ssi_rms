@@ -10,6 +10,7 @@ use Filament\Tables\Table;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Support\HtmlString;
+use App\Models\TransmittalLog;
 
 class TransmittalsTable
 {
@@ -289,6 +290,46 @@ class TransmittalsTable
                                 </div>";
                         }
 
+                        $logs = $record->logs()->with('user')->get();
+                        $logRows = '';
+
+                        foreach ($logs as $log) {
+                            $actionLabel = e($log->action);
+                            $userName    = e($log->user?->name ?? 'System');
+                            $logDate     = $log->created_at->timezone('Asia/Manila')->format('M d, Y h:i A');
+                            $noteVal     = e($log->note ?? '');
+                            $fromBadge   = $log->status_from
+                                ? "<span style='background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;font-size:10px;padding:1px 7px;border-radius:999px;'>" . e($log->status_from) . "</span>"
+                                : '';
+                            $toBadge     = $log->status_to
+                                ? "<span style='background:#dbeafe;color:#1d4ed8;font-size:10px;padding:1px 7px;border-radius:999px;'>" . e($log->status_to) . "</span>"
+                                : '';
+                            $arrow       = ($fromBadge && $toBadge) ? "<span style='color:#9ca3af;margin:0 4px;'>→</span>" : '';
+
+                            $logRows .= "
+                                <div style='display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;'>
+                                    <div style='width:8px;height:8px;border-radius:50%;background:#6366f1;flex-shrink:0;margin-top:5px;'></div>
+                                    <div style='flex:1;'>
+                                        <div style='display:flex;align-items:center;gap:6px;flex-wrap:wrap;'>
+                                            <span style='font-size:12px;font-weight:700;color:#111827;'>{$actionLabel}</span>
+                                            {$fromBadge}{$arrow}{$toBadge}
+                                        </div>
+                                        <div style='font-size:11px;color:#6b7280;margin-top:2px;'>{$userName} · {$logDate}</div>
+                                        " . ($noteVal ? "<div style='font-size:12px;color:#374151;margin-top:3px;'>{$noteVal}</div>" : '') . "
+                                    </div>
+                                </div>";
+                        }
+
+                        $logsHtml = "
+                            <div style='margin-top:16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;'>
+                                <div style='background:#f1f5f9;padding:9px 14px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;'>
+                                    Activity Log
+                                </div>
+                                <div style='padding:4px 14px;'>
+                                    " . ($logRows ?: "<div style='padding:12px 0;font-size:13px;color:#9ca3af;font-style:italic;'>No activity recorded yet.</div>") . "
+                                </div>
+                            </div>";
+
                         return new HtmlString("
                             <div style='font-family:\"DM Sans\",system-ui,sans-serif;'>
                                 <div style='background:linear-gradient(135deg,#1e3a5f 0%,#1e40af 100%);
@@ -344,6 +385,7 @@ class TransmittalsTable
 
                                 {$receiptTrackingHtml}
                                 {$linkedIssuancesHtml}
+                                {$logsHtml}  
                                 {$printBtnHtml}
                             </div>
                         ");
@@ -415,12 +457,24 @@ class TransmittalsTable
                         'date_received_from_office' => $record->date_received_from_office,
                         'remarks'                   => $record->remarks,
                     ])
+                    // ─── RECEIVE FROM OFFICE ───────────────────────────────────
                     ->action(function ($record, array $data) {
+                        $from = $record->status;
+
                         $record->update([
                             'received_from_office'      => $data['received_from_office'],
                             'date_received_from_office' => $data['date_received_from_office'],
                             'remarks'                   => $data['remarks'] ?? null,
                             'status'                    => 'received_from_office',
+                        ]);
+
+                        TransmittalLog::create([
+                            'transmittal_id' => $record->id,
+                            'user_id'        => auth()->id(),
+                            'action'         => 'Received from Office',
+                            'status_from'    => $from,
+                            'status_to'      => 'received_from_office',
+                            'note'           => "Received by: {$data['received_from_office']}. " . ($data['remarks'] ?? ''),
                         ]);
 
                         Notification::make()
@@ -457,12 +511,24 @@ class TransmittalsTable
                         'date_received_from_site' => $record->date_received_from_site,
                         'remarks'                 => $record->remarks,
                     ])
+                    // ─── RECEIVE FROM SITE ─────────────────────────────────────
                     ->action(function ($record, array $data) {
+                        $from = $record->status;
+
                         $record->update([
                             'received_from_site'      => $data['received_from_site'],
                             'date_received_from_site' => $data['date_received_from_site'],
                             'remarks'                 => $data['remarks'] ?? null,
                             'status'                  => 'received_from_site',
+                        ]);
+
+                        TransmittalLog::create([
+                            'transmittal_id' => $record->id,
+                            'user_id'        => auth()->id(),
+                            'action'         => 'Received from Site',
+                            'status_from'    => $from,
+                            'status_to'      => 'received_from_site',
+                            'note'           => "Received by: {$data['received_from_site']}. " . ($data['remarks'] ?? ''),
                         ]);
 
                         Notification::make()
@@ -499,12 +565,24 @@ class TransmittalsTable
                         'date_returned' => $record->date_returned,
                         'remarks'       => $record->remarks,
                     ])
+                    // ─── RETURN DOCUMENT ───────────────────────────────────────
                     ->action(function ($record, array $data) {
+                        $from = $record->status;
+
                         $record->update([
                             'returned_by'   => $data['returned_by'],
                             'date_returned' => $data['date_returned'],
                             'remarks'       => $data['remarks'] ?? null,
                             'status'        => 'document_returned',
+                        ]);
+
+                        TransmittalLog::create([
+                            'transmittal_id' => $record->id,
+                            'user_id'        => auth()->id(),
+                            'action'         => 'Document Returned',
+                            'status_from'    => $from,
+                            'status_to'      => 'document_returned',
+                            'note'           => "Returned by: {$data['returned_by']}. " . ($data['remarks'] ?? ''),
                         ]);
 
                         Notification::make()

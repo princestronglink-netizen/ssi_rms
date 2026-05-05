@@ -24,6 +24,12 @@ class BillingsTable
                     ->searchable(),
                 TextColumn::make('client.client_name')
                     ->searchable(),
+                TextColumn::make('client.assignedUsers.name')
+                    ->label('Assigned To')
+                    ->badge()
+                    ->color('info')
+                    ->separator(',')
+                    ->placeholder('—'),
                 TextColumn::make('billing_start_period')
                     ->date()
                     ->sortable(),

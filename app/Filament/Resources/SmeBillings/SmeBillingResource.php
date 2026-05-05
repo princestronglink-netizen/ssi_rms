@@ -13,6 +13,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class SmeBillingResource extends Resource
 {
@@ -59,5 +60,22 @@ class SmeBillingResource extends Resource
         return [
             'index' => ListSmeBillings::route('/'),
         ];
+    }
+
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if ($user && ! $user->isManager()) {
+            $assignedClientIds = $user->assignedClients()->pluck('clients.id');
+
+            $query->whereHas('purchaseOrder.site', function (Builder $q) use ($assignedClientIds) {
+                $q->whereIn('client_id', $assignedClientIds);
+            });
+        }
+
+        return $query;
     }
 }

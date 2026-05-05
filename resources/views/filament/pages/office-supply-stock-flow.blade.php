@@ -1,0 +1,1028 @@
+<x-filament-panels::page>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap');
+
+.os-report-check-box svg { opacity: 0; }
+.os-report-check.os-check--active .os-report-check-box svg { opacity: 1; }
+.os-wrap { display:flex; flex-direction:column; gap:20px; }
+
+.os-panel {
+    background: var(--cl-base,#fff);
+    border: 1px solid var(--cl-border,rgba(22,109,245,0.12));
+    border-radius: 16px;
+    box-shadow: var(--cl-shadow-sm,0 6px 18px rgba(22,109,245,0.08));
+}
+.os-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 20px 0; flex-wrap:wrap; gap:10px;
+}
+.os-header-title { font-size:13px; font-weight:700; color:var(--cl-text,#0e1b34); letter-spacing:-0.01em; font-family:'Syne',sans-serif; }
+.os-header-sub   { font-size:11px; color:var(--cl-text-3,#7f96b6); margin-top:2px; font-family:'DM Sans',sans-serif; }
+
+.os-filters {
+    display:grid; grid-template-columns:repeat(5,1fr) auto;
+    gap:12px; padding:14px 20px 18px; align-items:end;
+}
+@media(max-width:1100px){ .os-filters{ grid-template-columns:repeat(3,1fr); } .os-reset-col{ grid-column:1/-1; } }
+@media(max-width:640px) { .os-filters{ grid-template-columns:1fr 1fr; } }
+
+.os-field { display:flex; flex-direction:column; gap:5px; }
+.os-label {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--cl-text-3,#7f96b6);
+    font-family:'IBM Plex Mono',monospace;
+}
+.os-select, .os-date {
+    width:100%; padding:8px 28px 8px 10px; font-size:12.5px;
+    font-family:'DM Sans',sans-serif; font-weight:500; border-radius:10px;
+    border:1px solid var(--cl-border,rgba(22,109,245,0.12));
+    background:var(--cl-tinted,#f8fbff); color:var(--cl-text,#0e1b34);
+    transition:border-color .18s,box-shadow .18s;
+    appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237f96b6' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 10px center;
+}
+.os-date { background-image:none; padding-right:10px; }
+.os-select:focus,.os-date:focus { outline:none; border-color:rgba(22,109,245,0.5); box-shadow:0 0 0 3px rgba(22,109,245,0.12); }
+.dark .os-select,.dark .os-date {
+    background-color:var(--cl-sunken,#0d1220); color:var(--cl-text,#e8edf7);
+    border-color:var(--cl-border,rgba(22,109,245,0.15));
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d6080' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+.os-reset-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 14px; font-size:12px; font-weight:600;
+    border-radius:10px; border:1px solid var(--cl-border-strong,rgba(22,109,245,0.25));
+    background:transparent; color:rgb(22,109,245); cursor:pointer;
+    transition:background .18s; white-space:nowrap; font-family:'DM Sans',sans-serif;
+}
+.os-reset-btn:hover { background:rgba(22,109,245,0.08); }
+
+.os-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+@media(max-width:900px){ .os-kpi-grid{ grid-template-columns:repeat(2,1fr); } }
+@media(max-width:480px){ .os-kpi-grid{ grid-template-columns:1fr; } }
+
+.os-kpi {
+    padding:18px 20px; border-radius:14px;
+    background:var(--cl-base,#fff);
+    border:1px solid var(--cl-border,rgba(22,109,245,0.12));
+    box-shadow:var(--cl-shadow-sm,0 6px 18px rgba(22,109,245,0.08));
+    position:relative; overflow:hidden;
+    transition:transform .22s ease,box-shadow .22s ease;
+}
+.os-kpi:hover { transform:translateY(-3px); box-shadow:var(--cl-shadow-md,0 12px 30px rgba(22,109,245,0.12)); }
+.os-kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; border-radius:14px 14px 0 0; }
+.os-kpi--in::before    { background:linear-gradient(90deg,#16a34a,#4ade80); }
+.os-kpi--out::before   { background:linear-gradient(90deg,#dc2626,#f87171); }
+.os-kpi--net::before   { background:linear-gradient(90deg,#7c3aed,#a78bfa); }
+.os-kpi--stock::before { background:linear-gradient(90deg,#0369a1,#38bdf8); }
+
+.os-kpi-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin-bottom:10px; font-size:16px; }
+.os-kpi--in    .os-kpi-icon { background:rgba(22,163,74,0.1);  color:#16a34a; }
+.os-kpi--out   .os-kpi-icon { background:rgba(220,38,38,0.1);  color:#dc2626; }
+.os-kpi--net   .os-kpi-icon { background:rgba(124,58,237,0.1); color:#7c3aed; }
+.os-kpi--stock .os-kpi-icon { background:rgba(3,105,161,0.1);  color:#0369a1; }
+
+.os-kpi-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--cl-text-3,#7f96b6); font-family:'IBM Plex Mono',monospace; }
+.os-kpi-value { font-size:28px; font-weight:700; font-family:'IBM Plex Mono',monospace; margin-top:4px; line-height:1.1; }
+.os-kpi-sub   { font-size:11px; color:var(--cl-text-3,#7f96b6); margin-top:3px; font-family:'DM Sans',sans-serif; }
+.os-kpi--in    .os-kpi-value { color:#16a34a; }
+.os-kpi--out   .os-kpi-value { color:#dc2626; }
+.os-kpi--net   .os-kpi-value { color:#7c3aed; }
+.os-kpi--stock .os-kpi-value { color:#0369a1; }
+
+.os-chart-body { padding:14px 20px 20px; height:310px; }
+
+.os-tabs {
+    display:flex; gap:0;
+    border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.12));
+    padding:0 20px; margin-top:0;
+}
+.os-tab {
+    padding:10px 16px; font-size:12px; font-weight:600;
+    color:var(--cl-text-3,#7f96b6); border:none;
+    border-bottom:2px solid transparent; background:transparent;
+    cursor:pointer; margin-bottom:-1px;
+    transition:color .18s,border-color .18s;
+    display:flex; align-items:center; gap:6px; font-family:'DM Sans',sans-serif;
+}
+.os-tab:hover { color:rgb(22,109,245); }
+.os-tab--active { color:rgb(22,109,245); border-bottom-color:rgb(22,109,245); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   REQUEST SUMMARY — dedicated independent filter zone
+═══════════════════════════════════════════════════════════════════ */
+.os-summary-filter-zone {
+    border-top: 1px solid var(--cl-border, rgba(22,109,245,0.10));
+    border-bottom: 1px solid var(--cl-border, rgba(22,109,245,0.10));
+    background: linear-gradient(to bottom, rgba(22,109,245,0.035), rgba(22,109,245,0.015));
+    padding: 14px 20px 12px;
+}
+.dark .os-summary-filter-zone {
+    background: linear-gradient(to bottom, rgba(22,109,245,0.07), rgba(22,109,245,0.03));
+}
+.os-summary-filter-zone-title {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+.os-summary-filter-zone-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: rgb(22,109,245);
+    font-family: 'IBM Plex Mono', monospace;
+    display: flex; align-items: center; gap: 6px;
+}
+.os-summary-filter-zone-label::before {
+    content: ''; display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: rgb(22,109,245);
+    box-shadow: 0 0 0 2px rgba(22,109,245,0.2);
+}
+.os-summary-filter-zone-sep { flex: 1; height: 1px; background: rgba(22,109,245,0.15); }
+.os-summary-filter-scope-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 6px;
+    font-size: 10px; font-weight: 700; font-family: 'IBM Plex Mono', monospace;
+    background: rgba(22,109,245,0.1); color: rgb(22,109,245);
+    border: 1px solid rgba(22,109,245,0.2); white-space: nowrap;
+}
+
+.os-summary-filter-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr) auto;
+    gap: 10px; align-items: end;
+}
+@media(max-width:1100px){
+    .os-summary-filter-grid { grid-template-columns: repeat(3, 1fr); }
+    .os-summary-reset-col   { grid-column: 1 / -1; }
+}
+@media(max-width:640px){
+    .os-summary-filter-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.os-summary-select, .os-summary-date {
+    width:100%; padding:8px 28px 8px 10px; font-size:12.5px;
+    font-family:'DM Sans',sans-serif; font-weight:500; border-radius:10px;
+    border:1px solid rgba(22,109,245,0.2);
+    background: rgba(22,109,245,0.04); color:var(--cl-text,#0e1b34);
+    transition:border-color .18s, box-shadow .18s;
+    appearance:none; -webkit-appearance:none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231669f5' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 10px center;
+    background-color: rgba(22,109,245,0.04);
+}
+.os-summary-date { background-image: none; padding-right: 10px; }
+.os-summary-select:focus, .os-summary-date:focus {
+    outline:none; border-color:rgba(22,109,245,0.55);
+    box-shadow:0 0 0 3px rgba(22,109,245,0.15);
+}
+.dark .os-summary-select, .dark .os-summary-date {
+    background-color: rgba(22,109,245,0.08);
+    color: var(--cl-text,#e8edf7);
+    border-color: rgba(22,109,245,0.25);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d8cf5' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+.dark .os-summary-date { background-image: none; }
+
+.os-summary-active-badges {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 6px; margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed rgba(22,109,245,0.15);
+}
+.os-summary-active-badges-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--cl-text-3, #7f96b6);
+    font-family: 'IBM Plex Mono', monospace; margin-right: 2px; white-space: nowrap;
+}
+.os-filter-active-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 6px;
+    font-size: 10.5px; font-weight: 600;
+    background: rgba(22,109,245,0.1); color: rgb(22,109,245);
+    border: 1px solid rgba(22,109,245,0.2);
+    font-family: 'IBM Plex Mono', monospace;
+}
+.os-filter-active-badge button {
+    background: none; border: none; cursor: pointer;
+    color: inherit; padding: 0; line-height: 1;
+    font-size: 12px; margin-left: 2px; opacity: 0.6;
+}
+.os-filter-active-badge button:hover { opacity: 1; }
+
+.os-summary-body { padding:16px 20px 20px; }
+.os-table { width:100%; border-collapse:collapse; }
+.os-table thead th {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--cl-text-3,#7f96b6);
+    padding:7px 8px; text-align:left;
+    background:var(--cl-tinted,#f8fbff);
+    border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.12));
+    font-family:'IBM Plex Mono',monospace;
+}
+.dark .os-table thead th { background:var(--cl-sunken,#0d1220); }
+.os-table thead th:last-child { text-align:right; }
+.os-table tbody tr { transition:background .13s; }
+.os-table tbody tr:hover { background:rgba(22,109,245,0.04); }
+.os-table tbody td {
+    padding:9px 8px;
+    border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.08));
+    font-size:12.5px; color:var(--cl-text,#0e1b34); font-family:'DM Sans',sans-serif;
+}
+.os-table tbody td:last-child { text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; }
+.os-td-meta { font-size:11px; color:var(--cl-text-3,#7f96b6); font-family:'DM Sans',sans-serif; }
+.os-td-rank {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:6px;
+    background:rgba(22,109,245,0.08); color:rgb(22,109,245);
+    font-size:10px; font-weight:700; font-family:'IBM Plex Mono',monospace;
+    margin-right:6px; flex-shrink:0;
+}
+.os-badge { display:inline-flex; align-items:center; padding:3px 10px; border-radius:99px; font-size:11px; font-weight:700; font-family:'IBM Plex Mono',monospace; }
+.os-badge--blue   { background:rgba(22,109,245,0.1);  color:rgb(22,109,245); }
+.os-badge--green  { background:rgba(22,163,74,0.1);   color:#16a34a; }
+.os-badge--purple { background:rgba(124,58,237,0.1);  color:#7c3aed; }
+
+.os-type-pill {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:2px 8px; border-radius:6px;
+    font-size:10px; font-weight:700; font-family:'IBM Plex Mono',monospace;
+    white-space:nowrap; letter-spacing:0.03em;
+}
+.os-type-pill::before { content:''; width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.os-type-pill--completed::before { background:#16a34a; }
+.os-type-pill--pending::before   { background:#ea580c; }
+.os-type-pill--rejected::before  { background:#dc2626; }
+.os-type-pill--default::before   { background:#64748b; }
+.os-type-pill--completed  { background:rgba(22,163,74,0.1);   color:#16a34a; }
+.os-type-pill--pending    { background:rgba(234,88,12,0.1);   color:#ea580c; }
+.os-type-pill--rejected   { background:rgba(220,38,38,0.1);   color:#dc2626; }
+.os-type-pill--default    { background:rgba(100,116,139,0.1); color:#64748b; }
+
+.os-issuance-types-wrap { display:flex; flex-direction:column; gap:5px; }
+.os-type-block { border:1px solid var(--cl-border,rgba(22,109,245,0.1)); border-radius:10px; padding:8px 10px; background:var(--cl-tinted,#f8fbff); }
+.dark .os-type-block { background:rgba(22,109,245,0.04); }
+.os-type-block-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px; }
+.os-type-block-total { font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:700; background:rgba(22,109,245,0.08); color:rgb(22,109,245); padding:1px 8px; border-radius:6px; }
+
+.os-size-list { display:flex; flex-direction:column; gap:2px; padding-left:4px; }
+.os-size-row  { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:2px 4px; border-radius:5px; }
+.os-size-row:hover { background:rgba(22,109,245,0.05); }
+.os-size-name { font-size:11.5px; color:var(--cl-text-3,#7f96b6); font-family:'DM Sans',sans-serif; min-width:40px; }
+.os-size-qty  { font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:700; color:var(--cl-text,#0e1b34); }
+
+.os-empty { text-align:center; color:var(--cl-text-3,#7f96b6); font-size:12px; padding:28px 0; font-family:'DM Sans',sans-serif; }
+
+.os-legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.os-legend-item { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; font-family:'IBM Plex Mono',monospace; }
+.os-legend-line { width:20px; height:3px; border-radius:2px; display:inline-block; }
+.os-legend-line--dashed { border-top:2px dashed; background:transparent !important; height:0; }
+
+.os-gen-report-wrap { display:flex; justify-content:flex-end; padding:4px 0 8px; }
+.os-gen-report-btn {
+    display:inline-flex; align-items:center; gap:8px;
+    padding:11px 22px; font-size:13px; font-weight:700; border-radius:12px;
+    background:linear-gradient(135deg,rgb(22,109,245) 0%,#0ea5e9 100%);
+    color:#fff; border:none; cursor:pointer;
+    box-shadow:0 4px 14px rgba(22,109,245,0.35);
+    transition:transform .18s,box-shadow .18s,filter .18s;
+    font-family:'Syne',sans-serif; letter-spacing:-0.01em; position:relative; overflow:hidden;
+}
+.os-gen-report-btn::before { content:''; position:absolute; inset:0; background:linear-gradient(135deg,rgba(255,255,255,0.15) 0%,transparent 60%); pointer-events:none; }
+.os-gen-report-btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(22,109,245,0.45); filter:brightness(1.05); }
+
+/* Modal */
+.os-modal-overlay {
+    position:fixed; inset:0; z-index:9999;
+    background:rgba(9,16,32,0.65); backdrop-filter:blur(6px);
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    opacity:0; pointer-events:none; transition:opacity .25s ease;
+}
+.os-modal-overlay.os-modal--open { opacity:1; pointer-events:all; }
+.os-modal {
+    background:var(--cl-base,#fff);
+    border:1px solid var(--cl-border,rgba(22,109,245,0.15));
+    border-radius:20px; box-shadow:0 30px 80px rgba(9,16,32,0.3);
+    width:100%; max-width:800px; max-height:88vh; overflow-y:auto;
+    transform:translateY(28px) scale(0.97); transition:transform .28s cubic-bezier(.34,1.56,.64,1);
+}
+.os-modal-overlay.os-modal--open .os-modal { transform:translateY(0) scale(1); }
+
+.os-modal-header {
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding:22px 24px 16px; gap:12px;
+    border-bottom:1px solid var(--cl-border,rgba(22,109,245,0.1));
+    position:sticky; top:0; background:var(--cl-base,#fff); z-index:10; border-radius:20px 20px 0 0;
+}
+.dark .os-modal-header { background:var(--cl-base,#0d1220); }
+.os-modal-title { font-size:16px; font-weight:800; color:var(--cl-text,#0e1b34); font-family:'Syne',sans-serif; letter-spacing:-0.02em; }
+.os-modal-sub   { font-size:12px; color:var(--cl-text-3,#7f96b6); margin-top:2px; font-family:'DM Sans',sans-serif; }
+.os-modal-close {
+    width:30px; height:30px; border-radius:8px;
+    border:1px solid var(--cl-border,rgba(22,109,245,0.15));
+    background:transparent; color:var(--cl-text-3,#7f96b6);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    transition:background .15s,color .15s; flex-shrink:0; font-size:16px;
+}
+.os-modal-close:hover { background:rgba(220,38,38,0.08); color:#dc2626; border-color:rgba(220,38,38,0.2); }
+.os-modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:20px; }
+
+.os-modal-section { display:flex; flex-direction:column; gap:8px; }
+.os-modal-section-title {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.1em; color:var(--cl-text-3,#7f96b6);
+    font-family:'IBM Plex Mono',monospace; display:flex; align-items:center; gap:6px;
+}
+.os-modal-section-title::after { content:''; flex:1; height:1px; background:var(--cl-border,rgba(22,109,245,0.1)); }
+
+.os-date-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+.os-report-checkboxes { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media(max-width:480px){ .os-report-checkboxes{ grid-template-columns:1fr; } }
+
+.os-report-check {
+    display:flex; align-items:center; gap:10px; padding:11px 14px;
+    border:1px solid var(--cl-border,rgba(22,109,245,0.12)); border-radius:10px;
+    cursor:pointer; background:var(--cl-tinted,#f8fbff);
+    transition:border-color .15s,background .15s; user-select:none;
+}
+.os-report-check:hover { border-color:rgba(22,109,245,0.35); background:rgba(22,109,245,0.04); }
+.os-report-check input[type=checkbox] { display:none; }
+.os-report-check-box {
+    width:16px; height:16px; border-radius:5px;
+    border:2px solid var(--cl-border-strong,rgba(22,109,245,0.3));
+    background:transparent; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    transition:background .15s,border-color .15s;
+}
+.os-report-check.os-check--active .os-report-check-box { background:rgb(22,109,245); border-color:rgb(22,109,245); }
+.os-report-check.os-check--active { border-color:rgba(22,109,245,0.4); background:rgba(22,109,245,0.06); }
+.os-report-check-label { font-size:12.5px; font-weight:600; color:var(--cl-text,#0e1b34); font-family:'DM Sans',sans-serif; }
+.os-report-check-desc  { font-size:11px; color:var(--cl-text-3,#7f96b6); font-family:'DM Sans',sans-serif; }
+
+.os-report-preview { border:1px solid var(--cl-border,rgba(22,109,245,0.12)); border-radius:12px; overflow:hidden; }
+.os-report-preview-header { background:linear-gradient(135deg,rgb(22,109,245) 0%,#0ea5e9 100%); padding:14px 18px; display:flex; align-items:center; gap:10px; }
+.os-report-preview-title { font-size:12px; font-weight:700; color:#fff; font-family:'Syne',sans-serif; }
+.os-report-preview-sub   { font-size:10px; color:rgba(255,255,255,0.75); font-family:'DM Sans',sans-serif; }
+.os-report-sections { padding:14px 18px; display:flex; flex-direction:column; gap:10px; background:var(--cl-tinted,#f8fbff); }
+.dark .os-report-sections { background:rgba(22,109,245,0.03); }
+.os-report-section-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:7px; font-size:11px; font-weight:600; font-family:'IBM Plex Mono',monospace; background:var(--cl-base,#fff); border:1px solid var(--cl-border,rgba(22,109,245,0.15)); color:var(--cl-text,#0e1b34); }
+.os-report-section-chip.os-chip--active { background:rgba(22,109,245,0.1); color:rgb(22,109,245); border-color:rgba(22,109,245,0.25); }
+
+.os-modal-footer {
+    padding:16px 24px 20px; border-top:1px solid var(--cl-border,rgba(22,109,245,0.1));
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.os-modal-cancel {
+    padding:9px 18px; font-size:12.5px; font-weight:600; border-radius:10px;
+    border:1px solid var(--cl-border-strong,rgba(22,109,245,0.2));
+    background:transparent; color:var(--cl-text-3,#7f96b6); cursor:pointer;
+    transition:background .15s,color .15s; font-family:'DM Sans',sans-serif;
+}
+.os-modal-cancel:hover { background:rgba(22,109,245,0.05); color:var(--cl-text,#0e1b34); }
+.os-modal-generate {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:9px 22px; font-size:13px; font-weight:700; border-radius:10px;
+    background:linear-gradient(135deg,rgb(22,109,245) 0%,#0ea5e9 100%);
+    color:#fff; border:none; cursor:pointer;
+    box-shadow:0 3px 10px rgba(22,109,245,0.3);
+    transition:transform .15s,box-shadow .15s; font-family:'Syne',sans-serif;
+}
+.os-modal-generate:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(22,109,245,0.4); }
+.dark .os-modal { background:var(--cl-base,#0d1220); }
+.dark .os-report-check { background:rgba(22,109,245,0.04); }
+</style>
+
+@php
+    $metrics   = $this->getMetrics();
+    $chartData = $this->getFlowChartData();
+    $summary   = $this->getRequestSummary();
+
+    // Summary active filter state
+    $summaryActiveFilters = array_filter([$summary_category_id, $summary_item_id, $summary_variant_id]);
+    $summaryDateDiff      = ($summary_date_from !== $date_from || $summary_date_to !== $date_to);
+    $activeSummaryCount   = count($summaryActiveFilters) + ($summaryDateDiff ? 1 : 0);
+@endphp
+
+<div class="os-wrap">
+
+    {{-- ══ FILTER PANEL (KPIs + Chart only) ══ --}}
+    <div class="os-panel">
+        <div class="os-header">
+            <div>
+                <div class="os-header-title">Office Supply Stock Flow Dashboard</div>
+                <div class="os-header-sub">Monitor office supply inventory movement — restocks in, completed requests out</div>
+            </div>
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;font-size:10px;font-weight:700;font-family:'IBM Plex Mono',monospace;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.2);">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                Affects KPIs &amp; Chart
+            </span>
+        </div>
+        <div class="os-filters">
+            <div class="os-field">
+                <span class="os-label">Category</span>
+                <select class="os-select" wire:model.live="category_id">
+                    <option value="">All Categories</option>
+                    @foreach($this->getCategoryOptions() as $id => $name)
+                        <option value="{{ $id }}">{{ $name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="os-field">
+                <span class="os-label">Item</span>
+                <select class="os-select" wire:model.live="item_id">
+                    <option value="">All Items</option>
+                    @foreach($this->getItemOptions() as $id => $name)
+                        <option value="{{ $id }}">{{ $name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="os-field">
+                <span class="os-label">Variant</span>
+                <select class="os-select" wire:model.live="variant_id">
+                    <option value="">All Variants</option>
+                    @foreach($this->getVariantOptions() as $id => $variant)
+                        <option value="{{ $id }}">{{ $variant }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="os-field">
+                <span class="os-label">Date From</span>
+                <input type="date" class="os-date" wire:model.live.debounce.600ms="date_from">
+            </div>
+            <div class="os-field">
+                <span class="os-label">Date To</span>
+                <input type="date" class="os-date" wire:model.live.debounce.600ms="date_to">
+            </div>
+            <div class="os-reset-col" style="display:flex;align-items:flex-end;">
+                <button wire:click="resetFlowFilters" class="os-reset-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- ══ KPI ROW ══ --}}
+    <div class="os-kpi-grid">
+        <div class="os-kpi os-kpi--in">
+            <div class="os-kpi-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m7-7-7 7-7-7"/></svg>
+            </div>
+            <div class="os-kpi-label">Stock In</div>
+            <div class="os-kpi-value">{{ number_format($metrics['total_in']) }}</div>
+            <div class="os-kpi-sub">Restocks + Returns</div>
+        </div>
+        <div class="os-kpi os-kpi--out">
+            <div class="os-kpi-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m7 7-7-7-7 7"/></svg>
+            </div>
+            <div class="os-kpi-label">Stock Out</div>
+            <div class="os-kpi-value">{{ number_format($metrics['total_out']) }}</div>
+            <div class="os-kpi-sub">Completed Requests</div>
+        </div>
+        <div class="os-kpi os-kpi--net">
+            <div class="os-kpi-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m7 16 4-4-4-4m6 8 4-4-4-4"/></svg>
+            </div>
+            <div class="os-kpi-label">Net Movement</div>
+            <div class="os-kpi-value">{{ ($metrics['net'] >= 0 ? '+' : '') . number_format($metrics['net']) }}</div>
+            <div class="os-kpi-sub">{{ $metrics['net'] >= 0 ? 'Surplus period' : 'Deficit period' }}</div>
+        </div>
+        <div class="os-kpi os-kpi--stock">
+            <div class="os-kpi-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2M12 12v5m-3-2.5 3 2.5 3-2.5"/></svg>
+            </div>
+            <div class="os-kpi-label">Current Stock</div>
+            <div class="os-kpi-value">{{ number_format($metrics['current_stock']) }}</div>
+            <div class="os-kpi-sub">Units on hand</div>
+        </div>
+    </div>
+
+    {{-- ══ CHART ══ --}}
+    <div class="os-panel">
+        <div class="os-header">
+            <div>
+                <div class="os-header-title">Office Supply Stock Flow Trend</div>
+                <div class="os-header-sub">Monthly stock in / requests out / net movement</div>
+            </div>
+            <div class="os-legend">
+                <div class="os-legend-item" style="color:#16a34a;">
+                    <span class="os-legend-line" style="background:#16a34a;"></span> Stock In
+                </div>
+                <div class="os-legend-item" style="color:#dc2626;">
+                    <span class="os-legend-line" style="background:#dc2626;"></span> Requests Out
+                </div>
+                <div class="os-legend-item" style="color:#7c3aed;">
+                    <span class="os-legend-line os-legend-line--dashed" style="border-color:#7c3aed; width:20px;"></span> Net
+                </div>
+            </div>
+        </div>
+        <div wire:ignore class="os-chart-body">
+            <canvas id="osFlowChart"></canvas>
+        </div>
+    </div>
+
+    {{-- ══ REQUEST SUMMARY — own independent filters ══ --}}
+    <div class="os-panel">
+
+        {{-- Panel header --}}
+        <div class="os-header">
+            <div>
+                <div class="os-header-title">Supply Request Summary</div>
+                <div class="os-header-sub">Breakdown of completed requests by item, requester, and request number</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                @php $totalIssued = collect($summary)->sum('total'); @endphp
+                <span class="os-badge os-badge--blue">
+                    {{ count($summary) }} {{ $summary_tab === 'item' ? 'items' : ($summary_tab === 'requester' ? 'requesters' : 'requests') }}
+                </span>
+                <span class="os-badge os-badge--purple">{{ number_format($totalIssued) }} total units</span>
+            </div>
+        </div>
+
+        {{-- ── DEDICATED INDEPENDENT FILTER ZONE ── --}}
+        <div class="os-summary-filter-zone">
+
+            <div class="os-summary-filter-zone-title">
+                <span class="os-summary-filter-zone-label">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+                    Request Summary Filters
+                </span>
+                <span class="os-summary-filter-zone-sep"></span>
+                <span class="os-summary-filter-scope-badge">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Affects this table only
+                </span>
+            </div>
+
+            <div class="os-summary-filter-grid">
+                <div class="os-field">
+                    <span class="os-label">Category</span>
+                    <select class="os-summary-select" wire:model.live="summary_category_id">
+                        <option value="">All Categories</option>
+                        @foreach($this->getCategoryOptions() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="os-field">
+                    <span class="os-label">Item</span>
+                    <select class="os-summary-select" wire:model.live="summary_item_id">
+                        <option value="">All Items</option>
+                        @foreach($this->getSummaryItemOptions() as $id => $name)
+                            <option value="{{ $id }}">{{ $name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="os-field">
+                    <span class="os-label">Variant</span>
+                    <select class="os-summary-select" wire:model.live="summary_variant_id">
+                        <option value="">All Variants</option>
+                        @foreach($this->getSummaryVariantOptions() as $id => $variant)
+                            <option value="{{ $id }}">{{ $variant }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="os-field">
+                    <span class="os-label">Date From</span>
+                    <input type="date" class="os-summary-date" wire:model.live.debounce.600ms="summary_date_from">
+                </div>
+                <div class="os-field">
+                    <span class="os-label">Date To</span>
+                    <input type="date" class="os-summary-date" wire:model.live.debounce.600ms="summary_date_to">
+                </div>
+                <div class="os-summary-reset-col" style="display:flex;align-items:flex-end;">
+                    <button wire:click="resetSummaryFilters" class="os-reset-btn">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            {{-- Active filter badges --}}
+            @if($activeSummaryCount > 0)
+            <div class="os-summary-active-badges">
+                <span class="os-summary-active-badges-label">Filtering by:</span>
+                @if($summary_category_id)
+                    @php $catName = $this->getCategoryOptions()[$summary_category_id] ?? $summary_category_id; @endphp
+                    <span class="os-filter-active-badge">
+                        Category: {{ $catName }}
+                        <button wire:click="$set('summary_category_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summary_item_id)
+                    @php $itemName = $this->getSummaryItemOptions()[$summary_item_id] ?? $summary_item_id; @endphp
+                    <span class="os-filter-active-badge">
+                        Item: {{ $itemName }}
+                        <button wire:click="$set('summary_item_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summary_variant_id)
+                    @php $varName = $this->getSummaryVariantOptions()[$summary_variant_id] ?? $summary_variant_id; @endphp
+                    <span class="os-filter-active-badge">
+                        Variant: {{ $varName }}
+                        <button wire:click="$set('summary_variant_id', null)" title="Clear">×</button>
+                    </span>
+                @endif
+                @if($summaryDateDiff)
+                    <span class="os-filter-active-badge">
+                        {{ \Carbon\Carbon::parse($summary_date_from)->format('M d, Y') }} → {{ \Carbon\Carbon::parse($summary_date_to)->format('M d, Y') }}
+                        <button wire:click="resetSummaryDates" title="Clear">×</button>
+                    </span>
+                @endif
+            </div>
+            @endif
+
+        </div>{{-- end .os-summary-filter-zone --}}
+
+        {{-- Tabs --}}
+        <div class="os-tabs">
+            <button wire:click="setSummaryTab('item')" class="os-tab {{ $summary_tab === 'item' ? 'os-tab--active' : '' }}">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                By Item
+            </button>
+            <button wire:click="setSummaryTab('requester')" class="os-tab {{ $summary_tab === 'requester' ? 'os-tab--active' : '' }}">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                By Requester
+            </button>
+            <button wire:click="setSummaryTab('request')" class="os-tab {{ $summary_tab === 'request' ? 'os-tab--active' : '' }}">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                By Request #
+            </button>
+        </div>
+
+        <div class="os-summary-body">
+            <table class="os-table">
+                <thead>
+                    <tr>
+                        <th style="width:32px;">#</th>
+                        <th>{{ $summary_tab === 'item' ? 'Item' : ($summary_tab === 'requester' ? 'Requester' : 'Request #') }}</th>
+                        <th>Breakdown by Status</th>
+                        <th style="width:90px;">Total Units</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($summary as $i => $row)
+                        <tr>
+                            <td><span class="os-td-rank">{{ $i + 1 }}</span></td>
+                            <td style="min-width:140px;">
+                                <div style="font-weight:600;font-size:12.5px;line-height:1.3;">{{ $row['label'] }}</div>
+                                @if(!empty($row['category']))
+                                    <div class="os-td-meta">{{ $row['category'] }}</div>
+                                @elseif(!empty($row['requester']))
+                                    <div class="os-td-meta">{{ $row['requester'] }}</div>
+                                @endif
+                            </td>
+                            <td style="min-width:280px;">
+                                @if(!empty($row['breakdown']))
+                                    <div class="os-issuance-types-wrap">
+                                        @foreach($row['breakdown'] as $type => $typeData)
+                                            @php
+                                                $typeKey   = strtolower(trim($type ?? 'other'));
+                                                $pillClass = in_array($typeKey, ['completed','pending','rejected'])
+                                                    ? "os-type-pill--{$typeKey}" : 'os-type-pill--default';
+                                                $subtotal  = $typeData['subtotal'] ?? 0;
+                                                $breakdown = $typeData['variants'] ?? ($typeData['items'] ?? []);
+                                            @endphp
+                                            <div class="os-type-block">
+                                                <div class="os-type-block-header">
+                                                    <span class="os-type-pill {{ $pillClass }}">{{ ucfirst($type ?? 'N/A') }}</span>
+                                                    <span class="os-type-block-total">{{ number_format($subtotal) }} units</span>
+                                                </div>
+                                                @if(!empty($breakdown))
+                                                    <div class="os-size-list">
+                                                        @foreach($breakdown as $label => $qty)
+                                                            <div class="os-size-row">
+                                                                <span class="os-size-name">{{ $label ?: '—' }}</span>
+                                                                <span class="os-size-qty">{{ number_format($qty) }}</span>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                @else
+                                    <span class="os-td-meta">—</span>
+                                @endif
+                            </td>
+                            <td>
+                                <span class="os-badge os-badge--blue">{{ number_format($row['total']) }}</span>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="os-empty">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 8px;display:block;opacity:.4;"><circle cx="12" cy="12" r="10"/><path d="M8 12h8m-4-4v8"/></svg>
+                            No completed request data for the selected period.
+                        </td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {{-- ══ GENERATE REPORT BUTTON ══ --}}
+    <div class="os-gen-report-wrap">
+        <button class="os-gen-report-btn" id="osOpenReportModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="11" x2="12" y2="17"/>
+                <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+            Generate Report
+        </button>
+    </div>
+
+</div>
+
+{{-- ══ REPORT MODAL ══ --}}
+<div class="os-modal-overlay" id="osReportModal" role="dialog" aria-modal="true">
+    <div class="os-modal">
+        <div class="os-modal-header">
+            <div>
+                <div class="os-modal-title">📊 Generate Office Supply Stock Flow Report</div>
+                <div class="os-modal-sub">Configure your report parameters and select sections to include</div>
+            </div>
+            <button class="os-modal-close" id="osCloseReportModal">✕</button>
+        </div>
+
+        <div class="os-modal-body">
+            <div class="os-modal-section">
+                <div class="os-modal-section-title">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    Date Range
+                </div>
+                <div class="os-date-row">
+                    <div class="os-field">
+                        <span class="os-label">From</span>
+                        <input type="date" class="os-date" id="osReportDateFrom" style="border:1px solid var(--cl-border,rgba(22,109,245,0.12));padding:8px 10px;border-radius:10px;background:var(--cl-tinted,#f8fbff);color:var(--cl-text,#0e1b34);font-size:13px;width:100%;">
+                    </div>
+                    <div class="os-field">
+                        <span class="os-label">To</span>
+                        <input type="date" class="os-date" id="osReportDateTo" style="border:1px solid var(--cl-border,rgba(22,109,245,0.12));padding:8px 10px;border-radius:10px;background:var(--cl-tinted,#f8fbff);color:var(--cl-text,#0e1b34);font-size:13px;width:100%;">
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                    <button class="os-report-preset" data-preset="this_year"    style="padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid var(--cl-border,rgba(22,109,245,0.15));background:transparent;color:var(--cl-text-3,#7f96b6);cursor:pointer;">This Year</button>
+                    <button class="os-report-preset" data-preset="last_month"   style="padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid var(--cl-border,rgba(22,109,245,0.15));background:transparent;color:var(--cl-text-3,#7f96b6);cursor:pointer;">Last Month</button>
+                    <button class="os-report-preset" data-preset="this_quarter" style="padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid var(--cl-border,rgba(22,109,245,0.15));background:transparent;color:var(--cl-text-3,#7f96b6);cursor:pointer;">This Quarter</button>
+                    <button class="os-report-preset" data-preset="last_quarter" style="padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid var(--cl-border,rgba(22,109,245,0.15));background:transparent;color:var(--cl-text-3,#7f96b6);cursor:pointer;">Last Quarter</button>
+                    <button class="os-report-preset" data-preset="last_6months" style="padding:4px 10px;border-radius:7px;font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace;border:1px solid var(--cl-border,rgba(22,109,245,0.15));background:transparent;color:var(--cl-text-3,#7f96b6);cursor:pointer;">Last 6 Months</button>
+                </div>
+            </div>
+
+            <div class="os-modal-section">
+                <div class="os-modal-section-title">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    Report Sections
+                </div>
+                <div class="os-report-checkboxes">
+                    <label class="os-report-check os-check--active" data-section="stock_summary">
+                        <input type="checkbox" checked>
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">Current Stock</div><div class="os-report-check-desc">Per item & variant on-hand quantities</div></div>
+                    </label>
+                    <label class="os-report-check os-check--active" data-section="requests">
+                        <input type="checkbox" checked>
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">Requests by Item</div><div class="os-report-check-desc">Completed requests grouped by item</div></div>
+                    </label>
+                    <label class="os-report-check os-check--active" data-section="restocks">
+                        <input type="checkbox" checked>
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">Restocks</div><div class="os-report-check-desc">Delivered restock items & quantities</div></div>
+                    </label>
+                    <label class="os-report-check os-check--active" data-section="returns">
+                        <input type="checkbox" checked>
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">Returns</div><div class="os-report-check-desc">Items returned back to stock</div></div>
+                    </label>
+                    <label class="os-report-check os-check--active" data-section="req_by_requester">
+                        <input type="checkbox" checked>
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">By Requester</div><div class="os-report-check-desc">Requests grouped per requester</div></div>
+                    </label>
+                    <label class="os-report-check" data-section="req_by_number">
+                        <input type="checkbox">
+                        <div class="os-report-check-box"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                        <div><div class="os-report-check-label">By Request #</div><div class="os-report-check-desc">Individual request records with items</div></div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="os-modal-section">
+                <div class="os-modal-section-title">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Report Preview
+                </div>
+                <div class="os-report-preview">
+                    <div class="os-report-preview-header">
+                        <div>
+                            <div class="os-report-preview-title">Office Supply Stock Flow Report</div>
+                            <div class="os-report-preview-sub" id="osPreviewDateRange">Date range: —</div>
+                        </div>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" style="margin-left:auto;flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <div class="os-report-sections">
+                        <div style="font-size:11px;color:var(--cl-text-3,#7f96b6);font-family:'DM Sans',sans-serif;margin-bottom:4px;">Sections included:</div>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;" id="osChipList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="os-modal-footer">
+            <div style="font-size:11px;color:var(--cl-text-3,#7f96b6);font-family:'DM Sans',sans-serif;">
+                Report generated based on selected filters above
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <button class="os-modal-cancel" id="osCloseReportModal2">Cancel</button>
+                <button class="os-modal-generate" id="osGenerateReportBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Generate &amp; Download
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    let osChart = null;
+    function isDark() { return document.documentElement.classList.contains('dark'); }
+
+    function buildChart(data) {
+        const el = document.getElementById('osFlowChart');
+        if (!el) return;
+        data = data || { labels: [], inData: [], outData: [], netData: [] };
+        const dark  = isDark();
+        const grid  = dark ? 'rgba(22,109,245,0.10)' : 'rgba(22,109,245,0.07)';
+        const ticks = dark ? '#4d7ab5' : '#7f96b6';
+        if (osChart) { osChart.destroy(); osChart = null; }
+        osChart = new Chart(el, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    { label:'In',  data:data.inData,  borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,0.08)',  tension:0.38, fill:true,  borderWidth:2, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#16a34a', pointBorderColor:'#fff', pointBorderWidth:2 },
+                    { label:'Out', data:data.outData, borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,0.06)',  tension:0.38, fill:true,  borderWidth:2, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#dc2626', pointBorderColor:'#fff', pointBorderWidth:2 },
+                    { label:'Net', data:data.netData, borderColor:'#7c3aed', backgroundColor:'transparent', borderDash:[6,4], tension:0.38, fill:false, borderWidth:2, pointRadius:3, pointHoverRadius:5, pointBackgroundColor:'#7c3aed', pointBorderColor:'#fff', pointBorderWidth:2 },
+                ]
+            },
+            options: {
+                responsive:true, maintainAspectRatio:false,
+                interaction:{ mode:'index', intersect:false },
+                plugins: {
+                    legend:{ display:false },
+                    tooltip:{
+                        backgroundColor: dark ? '#111827' : '#fff',
+                        borderColor:'rgba(22,109,245,0.2)', borderWidth:1,
+                        titleColor: dark ? '#c8d8f0' : '#0e1b34',
+                        bodyColor:  dark ? '#94a3b8' : '#445a7a',
+                        padding:12, cornerRadius:12,
+                        callbacks:{
+                            title: items => items[0].label,
+                            label: ctx => {
+                                const sign = ctx.dataset.label === 'Net' && ctx.parsed.y >= 0 ? '+' : '';
+                                return `  ${ctx.dataset.label}: ${sign}${ctx.parsed.y.toLocaleString()}`;
+                            }
+                        }
+                    }
+                },
+                scales:{
+                    x:{ grid:{color:grid}, ticks:{color:ticks, font:{family:'IBM Plex Mono',size:11}} },
+                    y:{ grid:{color:grid}, ticks:{color:ticks, font:{family:'IBM Plex Mono',size:11}, callback: v => v.toLocaleString()} }
+                }
+            }
+        });
+    }
+
+    function updateChartData(data) {
+        if (!osChart) { buildChart(data); return; }
+        osChart.data.labels           = data.labels;
+        osChart.data.datasets[0].data = data.inData;
+        osChart.data.datasets[1].data = data.outData;
+        osChart.data.datasets[2].data = data.netData;
+        osChart.update('active');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => buildChart(@json($chartData)));
+    document.addEventListener('livewire:navigated', () => buildChart(@json($chartData)));
+    document.addEventListener('os-chart-update', (e) => updateChartData(e.detail));
+    const obs = new MutationObserver(() => {
+        if (osChart) buildChart({ labels:osChart.data.labels, inData:osChart.data.datasets[0].data, outData:osChart.data.datasets[1].data, netData:osChart.data.datasets[2].data });
+    });
+    obs.observe(document.documentElement, { attributeFilter:['class'] });
+
+    /* ─── Modal ─────────────────────────────────────────────── */
+    const overlay      = document.getElementById('osReportModal');
+    const openBtn      = document.getElementById('osOpenReportModal');
+    const closeBtn     = document.getElementById('osCloseReportModal');
+    const closeBtn2    = document.getElementById('osCloseReportModal2');
+    const generateBtn  = document.getElementById('osGenerateReportBtn');
+    const dateFrom     = document.getElementById('osReportDateFrom');
+    const dateTo       = document.getElementById('osReportDateTo');
+    const previewRange = document.getElementById('osPreviewDateRange');
+    const chipList     = document.getElementById('osChipList');
+
+    const sectionLabels = {
+        stock_summary:    '📦 Current Stock',
+        requests:         '📤 Requests by Item',
+        restocks:         '📥 Restocks',
+        returns:          '🔄 Returns',
+        req_by_requester: '👤 By Requester',
+        req_by_number:    '📋 By Request #',
+    };
+
+    function formatDate(d) {
+        if (!d) return '—';
+        return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    }
+
+    function updatePreview() {
+        previewRange.textContent = 'Date range: ' + formatDate(dateFrom.value) + ' → ' + formatDate(dateTo.value);
+        chipList.innerHTML = '';
+        document.querySelectorAll('.os-report-check[data-section]').forEach(el => {
+            const chip = document.createElement('span');
+            chip.className = 'os-report-section-chip' + (el.classList.contains('os-check--active') ? ' os-chip--active' : '');
+            chip.textContent = sectionLabels[el.dataset.section] || el.dataset.section;
+            chipList.appendChild(chip);
+        });
+    }
+
+    function openModal() {
+        const liveDateFrom = document.querySelector('[wire\\:model\\.live\\.debounce\\.600ms="date_from"]');
+        const liveDateTo   = document.querySelector('[wire\\:model\\.live\\.debounce\\.600ms="date_to"]');
+        if (liveDateFrom?.value) dateFrom.value = liveDateFrom.value;
+        if (liveDateTo?.value)   dateTo.value   = liveDateTo.value;
+        if (!dateFrom.value) {
+            dateFrom.value = new Date().getFullYear() + '-01-01';
+            dateTo.value   = new Date().toISOString().split('T')[0];
+        }
+        updatePreview();
+        overlay.classList.add('os-modal--open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+        overlay.classList.remove('os-modal--open');
+        document.body.style.overflow = '';
+    }
+
+    openBtn?.addEventListener('click', openModal);
+    closeBtn?.addEventListener('click', closeModal);
+    closeBtn2?.addEventListener('click', closeModal);
+    overlay?.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+    document.querySelectorAll('.os-report-check[data-section]').forEach(label => {
+        label.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const inp = label.querySelector('input');
+            if (!inp) return;
+            inp.checked = !inp.checked;
+            label.classList.toggle('os-check--active', inp.checked);
+            updatePreview();
+        });
+    });
+
+    document.querySelectorAll('.os-report-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+            let f, t = now.toISOString().split('T')[0];
+            const p = btn.dataset.preset;
+            if      (p === 'this_year')    { f = y + '-01-01'; }
+            else if (p === 'last_month')   { f = new Date(y,m-1,1).toISOString().split('T')[0]; t = new Date(y,m,0).toISOString().split('T')[0]; }
+            else if (p === 'this_quarter') { const qs = Math.floor(m/3)*3; f = new Date(y,qs,1).toISOString().split('T')[0]; }
+            else if (p === 'last_quarter') { const qs = Math.floor(m/3)*3-3; f = new Date(y,qs,1).toISOString().split('T')[0]; t = new Date(y,qs+3,0).toISOString().split('T')[0]; }
+            else if (p === 'last_6months') { f = new Date(y,m-6,1).toISOString().split('T')[0]; }
+            dateFrom.value = f; dateTo.value = t;
+            updatePreview();
+            document.querySelectorAll('.os-report-preset').forEach(b => { b.style.background=''; b.style.color='var(--cl-text-3,#7f96b6)'; });
+            btn.style.background = 'rgba(22,109,245,0.1)'; btn.style.color = 'rgb(22,109,245)';
+        });
+    });
+
+    dateFrom.addEventListener('change', updatePreview);
+    dateTo.addEventListener('change', updatePreview);
+
+    generateBtn?.addEventListener('click', function () {
+        const sections = Array.from(document.querySelectorAll('.os-report-check[data-section].os-check--active')).map(el => el.dataset.section);
+        if (!dateFrom.value || !dateTo.value) { alert('Please select a date range.'); return; }
+        if (!sections.length) { alert('Please select at least one report section.'); return; }
+        const params = new URLSearchParams({
+            date_from:   dateFrom.value,
+            date_to:     dateTo.value,
+            sections:    sections.join(','),
+            category_id: document.querySelector('[wire\\:model\\.live="category_id"]')?.value || '',
+            item_id:     document.querySelector('[wire\\:model\\.live="item_id"]')?.value     || '',
+            variant_id:  document.querySelector('[wire\\:model\\.live="variant_id"]')?.value  || '',
+        });
+        window.open('/office-supply-stock-flow/report?' + params.toString(), '_blank');
+        closeModal();
+    });
+})();
+</script>
+@endpush
+
+</x-filament-panels::page>
