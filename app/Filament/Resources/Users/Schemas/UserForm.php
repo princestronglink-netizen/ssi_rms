@@ -26,6 +26,14 @@ class UserForm
 
                 DateTimePicker::make('email_verified_at'),
 
+                TextInput::make('temporary_password')
+                    ->label('Temporary Password')
+                    ->default(fn () => \Illuminate\Support\Str::random(12))
+                    ->required()
+                    ->helperText('Auto-generated. You may change this before saving.')
+                    ->hidden()
+                    ->dehydrated(false),
+
                 Select::make('department_id')
                     ->relationship('department', 'department_name')
                     ->preload()

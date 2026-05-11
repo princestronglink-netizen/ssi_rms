@@ -95,5 +95,11 @@ class User extends Authenticatable implements FilamentUser
         // return in_array($this->role, ['manager', 'admin', 'super_admin']);
     }
 
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        $data['password'] = bcrypt($data['temporary_password'] ?? \Illuminate\Support\Str::random(12));
+        unset($data['temporary_password']);
+        return $data;
+    }
 
 }
