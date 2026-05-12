@@ -3,11 +3,13 @@
 namespace App\Filament\Resources\Users\Schemas;
 
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Utilities\Get; // ← change this
-use Filament\Schemas\Components\Utilities\Set; // ← change this
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class UserForm
@@ -51,6 +53,7 @@ class UserForm
 
                         if (empty($selectedRoleIds)) {
                             $set('permissions', []);
+                            $set('role_permission_ids', []);
                             return;
                         }
 
@@ -63,24 +66,73 @@ class UserForm
                             ->values()
                             ->toArray();
 
+                        $set('role_permission_ids', $rolePermissions);
                         $set('permissions', $rolePermissions);
                     }),
 
+                // Tracks what the role(s) grant — used to compute denied/added
+                Hidden::make('role_permission_ids')
+                    ->default([]),
+
                 Select::make('permissions')
                     ->multiple()
-                    ->relationship('permissions', 'name')
-                    ->preload()
+                    ->options(fn () => Permission::all()->pluck('name', 'id')->toArray())
                     ->searchable()
-                    ->required(false)
-                    ->helperText('Auto-loaded from selected role. You can add or remove.')
-                    ->afterStateHydrated(function (Get $get, Set $set, $record) {
-                        if (!$record) return;
+                    ->live()
+                    ->helperText(function (Get $get): string {
+                        $roleIds     = $get('role_permission_ids') ?? [];
+                        $selectedIds = $get('permissions') ?? [];
 
-                        $allPermissions = $record->getAllPermissions()
+                        $added   = array_diff($selectedIds, $roleIds);
+                        $removed = array_diff($roleIds, $selectedIds);
+
+                        $parts = ['Role permissions loaded as default. Add or remove freely.'];
+
+                        if (! empty($added)) {
+                            $names   = Permission::whereIn('id', $added)->pluck('name')->join(', ');
+                            $parts[] = "➕ Added (extra): {$names}";
+                        }
+
+                        if (! empty($removed)) {
+                            $names   = Permission::whereIn('id', $removed)->pluck('name')->join(', ');
+                            $parts[] = "➖ Removed (denied from role): {$names}";
+                        }
+
+                        return implode("\n", $parts);
+                    })
+                    ->afterStateHydrated(function (Get $get, Set $set, $record) {
+                        if (! $record) {
+                            return;
+                        }
+
+                        // Role-granted permission IDs
+                        $rolePermissionIds = $record->roles()
+                            ->with('permissions')
+                            ->get()
+                            ->flatMap(fn($role) => $role->permissions)
+                            ->pluck('id')
+                            ->unique()
+                            ->values()
+                            ->toArray();
+
+                        $set('role_permission_ids', $rolePermissionIds);
+
+                        // Direct permissions explicitly granted on the user
+                        $directPermissionIds = $record->permissions()
                             ->pluck('id')
                             ->toArray();
 
-                        $set('permissions', $allPermissions);
+                        // Denied names → IDs so we can subtract from the display
+                        $deniedNames = $record->denied_permissions ?? [];
+                        $deniedIds   = Permission::whereIn('name', $deniedNames)
+                            ->pluck('id')
+                            ->toArray();
+
+                        // What admin sees = (role permissions + direct extras) - denied
+                        $effective = array_values(array_unique(array_merge($rolePermissionIds, $directPermissionIds)));
+                        $effective = array_values(array_diff($effective, $deniedIds));
+
+                        $set('permissions', $effective);
                     }),
             ]);
     }
