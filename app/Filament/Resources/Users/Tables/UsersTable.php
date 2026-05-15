@@ -5,8 +5,13 @@ namespace App\Filament\Resources\Users\Tables;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
 
 class UsersTable
@@ -44,25 +49,46 @@ class UsersTable
                         $rolePermissionIds = $data['role_permission_ids'] ?? [];
                         $selectedIds       = $data['permissions'] ?? [];
 
-                        // Permissions added on top of the role
                         $extraIds = array_diff($selectedIds, $rolePermissionIds);
-
-                        // Permissions removed from what the role grants → these are denied
                         $removedIds = array_diff($rolePermissionIds, $selectedIds);
 
-                        // Resolve denied IDs → names (stored as names for readability)
                         $deniedNames = Permission::whereIn('id', $removedIds)
                             ->pluck('name')
                             ->toArray();
 
-                        // Save denied permissions on the user record
                         $record->denied_permissions = $deniedNames;
                         $record->save();
 
-                        // Sync only the EXTRA direct permissions (not role defaults)
-                        // Role permissions stay on the role; we don't duplicate them
                         $extraPermissions = Permission::whereIn('id', $extraIds)->get();
                         $record->syncPermissions($extraPermissions);
+                    }),
+
+                Action::make('resetPassword')
+                    ->label('Reset Password')
+                    ->icon(Heroicon::OutlinedKey)
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('Reset User Password')
+                    ->modalDescription(fn ($record) => "This will generate a new temporary password for {$record->name} ({$record->email}). The old password will no longer work.")
+                    ->modalSubmitActionLabel('Yes, Reset Password')
+                    ->action(function ($record) {
+                        $newPassword = Str::random(12);
+
+                        $record->password = Hash::make($newPassword);
+                        $record->save();
+
+                        Notification::make()
+                            ->title('🔑 Password Reset Successfully')
+                            ->body(
+                                "👤 **{$record->name}**\n" .
+                                "📧 {$record->email}\n\n" .
+                                "🔐 New Temporary Password:\n" .
+                                "**{$newPassword}**\n\n" .
+                                "Share this with the user and ask them to change it upon first login."
+                            )
+                            ->success()
+                            ->persistent()
+                            ->send();
                     }),
             ])
             ->toolbarActions([

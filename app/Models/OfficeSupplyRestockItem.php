@@ -22,6 +22,11 @@ class OfficeSupplyRestockItem extends Model
         'remaining_quantity' => 'integer',
     ];
 
+    protected $attributes = [
+        'delivered_quantity' => 0,
+        'remaining_quantity' => 0,
+    ];
+
     public function officeSupplyRestock(): BelongsTo
     {
         return $this->belongsTo(OfficeSupplyRestock::class, 'office_supply_restock_id', 'id');

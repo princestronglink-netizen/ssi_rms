@@ -37,31 +37,65 @@ class ListSmePurchaseOrders extends ListRecords
                     }
 
                     DB::transaction(function () use ($record): void {
-                        $record->load('purchaseOrderItems.smeItemVariant.smeItem');
+                        $record->load('purchaseOrderItems.smeItem', 'purchaseOrderItems.smeItemVariant');
 
-                        $noteItems = [];
-
+                        // ── PASS 1: compute total deductions per variant ──────────────────
+                        $plannedDeductions = [];
                         foreach ($record->purchaseOrderItems as $item) {
-                            $variant = $item->smeItemVariant;
+                            $variantId = $item->sme_item_variant_id;
+                            $plannedDeductions[$variantId] = ($plannedDeductions[$variantId] ?? 0) + (int) $item->quantity;
+                        }
 
-                            if ($variant->sme_item_quantity < $item->quantity) {
+                        // ── PASS 2: validate stock ────────────────────────────────────────
+                        foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                            $variant = \App\Models\SmeItemVariants::find($variantId);
+                            if (! $variant || $variant->sme_item_quantity < $totalPlanned) {
                                 throw new \Exception(
-                                    "Insufficient stock for variant ID {$variant->id}. " .
-                                    "Available: {$variant->sme_item_quantity}, Required: {$item->quantity}"
+                                    "Insufficient stock for variant ID {$variantId}. " .
+                                    "Available: " . ($variant?->sme_item_quantity ?? 0) . ", Required: {$totalPlanned}"
                                 );
                             }
+                        }
 
-                            $stockBefore = (int) $variant->sme_item_quantity;
-                            $variant->decrement('sme_item_quantity', $item->quantity);
-                            $stockAfter = $stockBefore - $item->quantity;
+                        // ── PASS 3: capture stock_before per variant BEFORE any decrement ─
+                        $stockBeforeMap = [];
+                        foreach ($plannedDeductions as $variantId => $_) {
+                            $variant = \App\Models\SmeItemVariants::find($variantId);
+                            $stockBeforeMap[$variantId] = $variant ? (int) $variant->sme_item_quantity : 0;
+                        }
+
+                        // ── PASS 4: decrement each variant once ──────────────────────────
+                        foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                            \App\Models\SmeItemVariants::where('id', $variantId)
+                                ->decrement('sme_item_quantity', $totalPlanned);
+                        }
+
+                        // ── PASS 5: build note rows with per-item stock windows ───────────
+                        $noteItems      = [];
+                        $variantRunning = [];
+
+                        foreach ($record->purchaseOrderItems as $item) {
+                            $qty       = (int) $item->quantity;
+                            $variantId = $item->sme_item_variant_id;
+
+                            $alreadyConsumed = $variantRunning[$variantId] ?? 0;
+                            $stockOriginal   = $stockBeforeMap[$variantId] ?? 0;
+
+                            $stockBefore = $stockOriginal - $alreadyConsumed;
+                            $stockAfter  = $stockBefore   - $qty;
+
+                            $variantRunning[$variantId] = $alreadyConsumed + $qty;
 
                             $noteItems[] = [
                                 'label'        => ($item->smeItem?->sme_item_name ?? '—') . ' (' . ($item->smeItemVariant?->sme_item_size ?? '—') . ')',
-                                'qty'          => $item->quantity,
+                                'qty'          => $qty,
                                 'stock_before' => $stockBefore,
                                 'stock_after'  => $stockAfter,
                             ];
                         }
+
+                        // Sort: lowest stock_after first
+                        usort($noteItems, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
 
                         $record->update(['approved_at' => now()]);
 

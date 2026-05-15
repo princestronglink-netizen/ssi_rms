@@ -168,7 +168,11 @@ class SmeRestocksTable
                         $fields = [];
 
                         foreach ($record->smeRestockItem as $item) {
-                            $remaining = (int) $item->remaining_quantity;
+                            // fallback to quantity if remaining_quantity is 0 (fresh pending records)
+                            $remaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($remaining <= 0) continue;
 
                             $itemName = $item->smeItem?->sme_item_name ?? '—';
@@ -189,17 +193,25 @@ class SmeRestocksTable
                         $totalDelivered = 0;
                         $totalRemaining = 0;
                         $note           = [];
+                        $statusBefore   = $record->status;
 
                         foreach ($record->smeRestockItem as $item) {
                             $deliver = (int) ($data["item_{$item->id}_deliver"] ?? 0);
 
+                            // fallback to quantity if remaining_quantity is 0 (fresh pending records)
+                            $currentRemaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($deliver > 0) {
                                 $item->update([
                                     'delivered_quantity' => (int) $item->delivered_quantity + $deliver,
-                                    'remaining_quantity' => max(0, (int) $item->remaining_quantity - $deliver),
+                                    'remaining_quantity' => max(0, $currentRemaining - $deliver),
                                 ]);
 
-                                $variant = SmeItemVariants::find($item->sme_item_variant_id);
+                                $variant = SmeItemVariants::withTrashed()
+                                    ->find($item->sme_item_variant_id);
+
                                 if ($variant) {
                                     $stockBefore = (int) $variant->sme_item_quantity;
                                     $variant->increment('sme_item_quantity', $deliver);
@@ -240,21 +252,33 @@ class SmeRestocksTable
                             'sme_restock_id' => $record->id,
                             'user_id'        => Auth::id(),
                             'action'         => $newStatus,
-                            'status_from'    => $record->getOriginal('status'),
+                            'status_from'    => $statusBefore,
                             'status_to'      => $newStatus,
                             'note'           => json_encode($note),
                         ]);
 
                         if ($newStatus === 'delivered') {
-                            Notification::make()->title('Fully Delivered')->body('All items delivered and added to inventory.')->success()->send();
+                            Notification::make()
+                                ->title('Fully Delivered')
+                                ->body('All items delivered and added to inventory.')
+                                ->success()
+                                ->send();
+                        } elseif ($newStatus === 'partial') {
+                            Notification::make()
+                                ->title('Partially Delivered')
+                                ->body('Some items delivered. Remaining still pending.')
+                                ->warning()
+                                ->send();
                         } else {
-                            Notification::make()->title('Partially Delivered')->body('Some items delivered. Remaining still pending.')->warning()->send();
+                            Notification::make()
+                                ->title('No Items Delivered')
+                                ->body('No quantities were entered. Nothing was updated.')
+                                ->danger()
+                                ->send();
                         }
                     }),
 
                 // ─── RETURN ITEM: partial or delivered ─────────────────────
-                // For defectives / wrong items. Deducts from inventory.
-                // Status is NOT changed — only logged.
                 Action::make('return_item')
                     ->label('Return')
                     ->color('warning')
@@ -338,7 +362,9 @@ class SmeRestocksTable
                                 return;
                             }
 
-                            $variant = SmeItemVariants::find($restockItem->sme_item_variant_id);
+                            $variant = SmeItemVariants::withTrashed()
+                                ->find($restockItem->sme_item_variant_id);
+
                             if ($variant && (int) $variant->sme_item_quantity < $returnQty) {
                                 Notification::make()
                                     ->title('Insufficient Inventory')
@@ -367,7 +393,9 @@ class SmeRestocksTable
                                 'remaining_quantity' => (int) $restockItem->remaining_quantity + $returnQty,
                             ]);
 
-                            $variant = SmeItemVariants::find($restockItem->sme_item_variant_id);
+                            $variant = SmeItemVariants::withTrashed()
+                                ->find($restockItem->sme_item_variant_id);
+
                             if ($variant) {
                                 $stockBefore = (int) $variant->sme_item_quantity;
                                 $variant->decrement('sme_item_quantity', $returnQty);
@@ -388,7 +416,7 @@ class SmeRestocksTable
                         }
 
                         // ── Check if ALL items are fully returned ──────────
-                        $record->load('smeRestockItem'); // refresh collection
+                        $record->load('smeRestockItem');
                         $allReturned = $record->smeRestockItem->every(
                             fn ($item) => (int) $item->delivered_quantity === 0
                         );
@@ -432,6 +460,8 @@ class SmeRestocksTable
                     ->requiresConfirmation()
                     ->visible(fn ($record) => $record->status === 'pending')
                     ->action(function ($record) {
+                        $statusBefore = $record->status;
+
                         $record->update([
                             'status'       => 'cancelled',
                             'cancelled_at' => now()->toDateString(),
@@ -441,7 +471,7 @@ class SmeRestocksTable
                             'sme_restock_id' => $record->id,
                             'user_id'        => Auth::id(),
                             'action'         => 'cancelled',
-                            'status_from'    => $record->status,
+                            'status_from'    => $statusBefore,
                             'status_to'      => 'cancelled',
                             'note'           => 'Restock was cancelled.',
                         ]);
@@ -548,7 +578,6 @@ class SmeRestocksTable
                                 }
                             }
 
-                            // Show "no change" label when status_from === status_to (e.g. return)
                             $statusLine = $from === $to
                                 ? "<span style='color:#9ca3af;font-style:italic;'>no status change</span>"
                                 : "{$from} → {$to}";

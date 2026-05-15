@@ -168,7 +168,11 @@ class OfficeSupplyRestocksTable
                         $fields = [];
 
                         foreach ($record->officeSupplyRestockItem as $item) {
-                            $remaining = (int) $item->remaining_quantity;
+                            // fallback to quantity if remaining_quantity is 0 (fresh pending records)
+                            $remaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($remaining <= 0) continue;
 
                             $itemName = $item->officeSupplyItem?->office_supply_name ?? '—';
@@ -189,14 +193,20 @@ class OfficeSupplyRestocksTable
                         $totalDelivered = 0;
                         $totalRemaining = 0;
                         $note           = [];
+                        $statusBefore   = $record->status;
 
                         foreach ($record->officeSupplyRestockItem as $item) {
                             $deliver = (int) ($data["item_{$item->id}_deliver"] ?? 0);
 
+                            // fallback to quantity if remaining_quantity is 0 (fresh pending records)
+                            $currentRemaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($deliver > 0) {
                                 $item->update([
                                     'delivered_quantity' => (int) $item->delivered_quantity + $deliver,
-                                    'remaining_quantity' => max(0, (int) $item->remaining_quantity - $deliver),
+                                    'remaining_quantity' => max(0, $currentRemaining - $deliver),
                                 ]);
 
                                 $variant = OfficeSupplyItemVariant::find($item->office_supply_item_variant_id);
@@ -240,21 +250,33 @@ class OfficeSupplyRestocksTable
                             'office_supply_restock_id' => $record->id,
                             'user_id'                  => Auth::id(),
                             'action'                   => $newStatus,
-                            'status_from'              => $record->getOriginal('status'),
+                            'status_from'              => $statusBefore,
                             'status_to'                => $newStatus,
                             'note'                     => json_encode($note),
                         ]);
 
                         if ($newStatus === 'delivered') {
-                            Notification::make()->title('Fully Delivered')->body('All items delivered and added to inventory.')->success()->send();
+                            Notification::make()
+                                ->title('Fully Delivered')
+                                ->body('All items delivered and added to inventory.')
+                                ->success()
+                                ->send();
+                        } elseif ($newStatus === 'partial') {
+                            Notification::make()
+                                ->title('Partially Delivered')
+                                ->body('Some items delivered. Remaining still pending.')
+                                ->warning()
+                                ->send();
                         } else {
-                            Notification::make()->title('Partially Delivered')->body('Some items delivered. Remaining still pending.')->warning()->send();
+                            Notification::make()
+                                ->title('No Items Delivered')
+                                ->body('No quantities were entered. Nothing was updated.')
+                                ->danger()
+                                ->send();
                         }
                     }),
 
                 // ─── RETURN ITEM: partial or delivered ─────────────────────
-                // For defectives / wrong items. Deducts from inventory.
-                // Status is NOT changed — only logged.
                 Action::make('return_item')
                     ->label('Return')
                     ->color('warning')
@@ -351,7 +373,7 @@ class OfficeSupplyRestocksTable
                         }
 
                         // ── Apply ──────────────────────────────────────────
-                        $noteRows    = [];
+                        $noteRows     = [];
                         $statusBefore = $record->status;
 
                         foreach ($returns as $row) {
@@ -388,7 +410,7 @@ class OfficeSupplyRestocksTable
                         }
 
                         // ── Check if ALL items are fully returned ──────────
-                        $record->load('officeSupplyRestockItem'); // refresh collection
+                        $record->load('officeSupplyRestockItem');
                         $allReturned = $record->officeSupplyRestockItem->every(
                             fn ($item) => (int) $item->delivered_quantity === 0
                         );
@@ -432,6 +454,8 @@ class OfficeSupplyRestocksTable
                     ->requiresConfirmation()
                     ->visible(fn ($record) => $record->status === 'pending')
                     ->action(function ($record) {
+                        $statusBefore = $record->status;
+
                         $record->update([
                             'status'       => 'cancelled',
                             'cancelled_at' => now()->toDateString(),
@@ -441,7 +465,7 @@ class OfficeSupplyRestocksTable
                             'office_supply_restock_id' => $record->id,
                             'user_id'                  => Auth::id(),
                             'action'                   => 'cancelled',
-                            'status_from'              => $record->status,
+                            'status_from'              => $statusBefore,
                             'status_to'                => 'cancelled',
                             'note'                     => 'Restock was cancelled.',
                         ]);
@@ -548,7 +572,6 @@ class OfficeSupplyRestocksTable
                                 }
                             }
 
-                            // Show "no change" label when status_from === status_to (e.g. return)
                             $statusLine = $from === $to
                                 ? "<span style='color:#9ca3af;font-style:italic;'>no status change</span>"
                                 : "{$from} → {$to}";

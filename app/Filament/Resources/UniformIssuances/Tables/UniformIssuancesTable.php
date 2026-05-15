@@ -91,6 +91,7 @@ class UniformIssuancesTable
                         $record->loadMissing(
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             'uniformIssuanceRecipient.position',
                             'site',
                             'uniformIssuanceType'
@@ -167,10 +168,13 @@ class UniformIssuancesTable
                                 $remainingColor = $remaining > 0 ? '#d97706' : '#9ca3af';
                                 $bg = $i % 2 === 0 ? '#ffffff' : '#f8fafc';
 
+                                $typeName = e($item->uniformIssuanceType?->uniform_issuance_type_name ?? '—');
+
                                 $itemRows .= "
                                     <tr style='background:{$bg};'>
                                         <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;font-weight:500;'>{$itemName}</td>
                                         <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151;text-align:center;'>{$size}</td>
+                                        <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#7c3aed;text-align:center;'>{$typeName}</td>
                                         <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:700;text-align:center;color:#1d4ed8;'>{$qty}</td>
                                         <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:700;text-align:center;color:{$releasedColor};'>{$released}</td>
                                         <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:700;text-align:center;color:{$remainingColor};'>{$remaining}</td>
@@ -363,68 +367,148 @@ class UniformIssuancesTable
                     ->requiresConfirmation()
                     ->modalWidth('2xl')
                     ->visible(fn ($record) => in_array($record->uniform_issuance_status, ['pending', 'partial']))
+                
                     ->form(function ($record) {
+                        $record->load(
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
+                        );
+                
                         $fields = [];
-
+                
                         foreach ($record->uniformIssuanceRecipient as $recipient) {
                             $items = [];
-
+                
                             foreach ($recipient->uniformIssuanceItem as $item) {
                                 $remaining = (int) $item->remaining_quantity;
-
                                 if ($remaining <= 0) continue;
-
-                                $items[] = TextInput::make("item_{$item->id}_released")
-                                    ->label("{$item->uniformItem->uniform_item_name} : {$item->uniformItemVariant->uniform_item_size} (qty: {$remaining})")
+                
+                                $itemName = $item->uniformItem?->uniform_item_name        ?? '—';
+                                $size     = $item->uniformItemVariant?->uniform_item_size  ?? '—';
+                                $typeName = $item->uniformIssuanceType?->uniform_issuance_type_name ?? '—';
+                
+                                // Include the issuance type in the label so the user can
+                                // distinguish two rows that share the same item + size but
+                                // have different types (e.g. "New Hire" vs "Salary Deduct").
+                                $label = "{$itemName} — {$size} [{$typeName}] (remaining: {$remaining})";
+                
+                                $items[] = \Filament\Forms\Components\TextInput::make("item_{$item->id}_released")
+                                    ->label($label)
                                     ->numeric()
                                     ->default($remaining)
                                     ->minValue(0)
                                     ->maxValue($remaining)
                                     ->required();
                             }
-
-                            if (!empty($items)) {
-                                $fields[] = Placeholder::make("recipient")
+                
+                            if (! empty($items)) {
+                                $fields[] = \Filament\Forms\Components\Placeholder::make("recipient_header_{$recipient->id}")
                                     ->label('')
-                                    ->content(new HtmlString("<strong style='font-size:1rem;'>{$recipient->employee_name}</strong>"))
+                                    ->content(new \Illuminate\Support\HtmlString(
+                                        "<strong style='font-size:1rem;'>{$recipient->employee_name}</strong>"
+                                    ))
                                     ->columnSpanFull();
-
-                                foreach ($items as $item) {
-                                    $fields[] = $item;
+                
+                                foreach ($items as $field) {
+                                    $fields[] = $field;
                                 }
                             }
                         }
+                
                         return $fields;
                     })
-                    ->action(function ($record, array $data, Action $action) {
+                
+                    ->action(function ($record, array $data, \Filament\Actions\Action $action) {
+                        $record->load(
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
+                        );
+                
+                        // ── PASS 1: compute planned deductions per variant ───────────────────────
+                        // Track how much we plan to deduct per variant so we can detect
+                        // over-deduction when multiple rows share the same variant.
+                        $plannedDeductions = []; // [variantId => totalPlannedQty]
+                
                         foreach ($record->uniformIssuanceRecipient as $recipient) {
                             foreach ($recipient->uniformIssuanceItem as $item) {
-                                $released = (int) ($data["item_{$item->id}_released"] ?? 0);
-
-                                if ($released > 0) {
-                                    $variant = UniformItemVariants::find($item->uniform_item_variant_id);
-
-                                    if (!$variant) {
-                                        Notification::make()->title('Variant Not Found')->danger()->send();
-                                        $action->halt();
-                                        return;
-                                    }
-
-                                    if ((int) $variant->uniform_item_quantity < $released) {
-                                        Notification::make()
-                                            ->title('Insufficient Stock')
-                                            ->body("'{$item->uniformItem->uniform_item_name} - {$item->uniformItemVariant->uniform_item_size}' only has {$variant->uniform_item_quantity} in stock but you are trying to issue {$released}.")
-                                            ->danger()
-                                            ->send();
-                                        $action->halt();
-                                        return;
-                                    }
-                                }
+                                $newlyReleased = (int) ($data["item_{$item->id}_released"] ?? 0);
+                                if ($newlyReleased <= 0) continue;
+                
+                                $variantId = $item->uniform_item_variant_id;
+                                $plannedDeductions[$variantId] = ($plannedDeductions[$variantId] ?? 0) + $newlyReleased;
                             }
                         }
-
-                        $totalRemaining = 0;
+                
+                        // ── PASS 2: validate each variant's total planned deduction vs stock ─────
+                        foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                            $variant = \App\Models\UniformItemVariants::find($variantId);
+                
+                            if (! $variant) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Variant Not Found')
+                                    ->danger()
+                                    ->send();
+                                $action->halt();
+                                return;
+                            }
+                
+                            $currentStock = (int) $variant->uniform_item_quantity;
+                
+                            if ($totalPlanned > $currentStock) {
+                                // Find item names for a helpful error message
+                                $itemNames = [];
+                                foreach ($record->uniformIssuanceRecipient as $recipient) {
+                                    foreach ($recipient->uniformIssuanceItem as $item) {
+                                        if (
+                                            $item->uniform_item_variant_id == $variantId
+                                            && (int) ($data["item_{$item->id}_released"] ?? 0) > 0
+                                        ) {
+                                            $itemNames[] = ($item->uniformItem?->uniform_item_name ?? '—')
+                                                . ' (' . ($item->uniformItemVariant?->uniform_item_size ?? '—') . ')'
+                                                . ' [' . ($item->uniformIssuanceType?->uniform_issuance_type_name ?? '—') . ']';
+                                        }
+                                    }
+                                }
+                
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Insufficient Stock')
+                                    ->body(
+                                        "Combined release of {$totalPlanned} for:\n"
+                                        . implode("\n", $itemNames)
+                                        . "\nexceeds available stock of {$currentStock}."
+                                    )
+                                    ->danger()
+                                    ->send();
+                                $action->halt();
+                                return;
+                            }
+                        }
+                
+                        // ── PASS 3: capture stock_before per variant BEFORE any decrement ────────
+                        $stockBeforeMap = [];
+                        foreach ($plannedDeductions as $variantId => $_) {
+                            $variant = \App\Models\UniformItemVariants::find($variantId);
+                            $stockBeforeMap[$variantId] = $variant ? (int) $variant->uniform_item_quantity : null;
+                        }
+                
+                        // ── PASS 4: apply deductions — one DB decrement per variant ──────────────
+                        // We decrement the full planned amount for each variant in one shot
+                        // so we never read stale stock mid-loop.
+                        foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                            \App\Models\UniformItemVariants::where('id', $variantId)
+                                ->decrement('uniform_item_quantity', $totalPlanned);
+                        }
+                
+                        // ── PASS 5: update released/remaining per item row and build note ────────
                         $totalReleased  = 0;
+                        $totalRemaining = 0;
+                        $note           = [];
+
+                        // Cache fresh variants after bulk decrement (one DB read per variant)
+                        $variantCache   = [];
+                        $variantRunning = []; // tracks cumulative qty consumed per variant for per-row stock calc
 
                         foreach ($record->uniformIssuanceRecipient as $recipient) {
                             foreach ($recipient->uniformIssuanceItem as $item) {
@@ -436,10 +520,37 @@ class UniformIssuancesTable
                                         'remaining_quantity' => (int) $item->remaining_quantity - $newlyReleased,
                                     ]);
 
-                                    $variant = UniformItemVariants::find($item->uniform_item_variant_id);
-                                    if ($variant) {
-                                        $variant->decrement('uniform_item_quantity', $newlyReleased);
+                                    $variantId = $item->uniform_item_variant_id;
+
+                                    // Load fresh variant once per variant id (already decremented above)
+                                    if (! isset($variantCache[$variantId])) {
+                                        $variantCache[$variantId] = \App\Models\UniformItemVariants::find($variantId);
                                     }
+
+                                    $variant       = $variantCache[$variantId];
+                                    $stockFinal    = $variant ? (int) $variant->uniform_item_quantity : 0;
+                                    $totalDeducted = $plannedDeductions[$variantId] ?? 0;
+                                    $stockOriginal = $stockFinal + $totalDeducted; // before any deductions this session
+
+                                    // How much was already consumed by earlier rows for this variant in this loop
+                                    $alreadyConsumed = $variantRunning[$variantId] ?? 0;
+
+                                    $stockBefore = $stockOriginal - $alreadyConsumed;
+                                    $stockAfter  = $stockBefore   - $newlyReleased;
+
+                                    $variantRunning[$variantId] = $alreadyConsumed + $newlyReleased;
+
+                                    $typeName = $item->uniformIssuanceType?->uniform_issuance_type_name ?? '—';
+
+                                    $note[] = [
+                                        'label'        => ($item->uniformItem?->uniform_item_name ?? '—')
+                                                        . ' (' . ($item->uniformItemVariant?->uniform_item_size ?? '—') . ')'
+                                                        . ' [' . $typeName . ']'
+                                                        . ' — ' . ($recipient->employee_name ?? '—'),
+                                        'released'     => $newlyReleased,
+                                        'stock_before' => $stockBefore,
+                                        'stock_after'  => $stockAfter,
+                                    ];
                                 }
 
                                 $item->refresh();
@@ -448,6 +559,10 @@ class UniformIssuancesTable
                             }
                         }
 
+                        // Sort: lowest stock_after first
+                        usort($note, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
+                
+                        // ── PASS 6: update issuance status ──────────────────────────────────────
                         if ($totalRemaining === 0) {
                             $status = 'issued';
                         } elseif ($totalReleased === 0) {
@@ -455,46 +570,42 @@ class UniformIssuancesTable
                         } else {
                             $status = 'partial';
                         }
-
+                
+                        $statusBefore = $record->uniform_issuance_status;
+                
                         $record->update([
                             'uniform_issuance_status' => $status,
-                            'issued_at'               => $status === 'issued' ? now()->toDateString() : null,
+                            'issued_at'               => $status === 'issued'  ? now()->toDateString() : null,
                             'partial_at'              => $status === 'partial' ? now()->toDateString() : null,
                         ]);
-
-                        $note = [];
-                        foreach ($record->uniformIssuanceRecipient as $recipient) {
-                            foreach ($recipient->uniformIssuanceItem as $item) {
-                                $newlyReleased = (int) ($data["item_{$item->id}_released"] ?? 0);
-                                if ($newlyReleased > 0) {
-                                    $variant = UniformItemVariants::find($item->uniform_item_variant_id);
-                                    $stockAfter = $variant ? (int) $variant->uniform_item_quantity : null;
-                                    $stockBefore = $stockAfter !== null ? $stockAfter + $newlyReleased : null;
-
-                                    $note[] = [
-                                        'label'        => "{$item->uniformItem->uniform_item_name} ({$item->uniformItemVariant->uniform_item_size}) — {$recipient->employee_name}",
-                                        'released'     => $newlyReleased,
-                                        'stock_before' => $stockBefore,
-                                        'stock_after'  => $stockAfter,
-                                        'expected_remaining' => $stockAfter,
-                                    ];
-                                }
-                            }
-                        }
-
-                        UniformIssuanceLog::create([
+                
+                        \App\Models\UniformIssuanceLog::create([
                             'uniform_issuance_id' => $record->id,
-                            'user_id'             => Auth::id(),
+                            'user_id'             => \Illuminate\Support\Facades\Auth::id(),
                             'action'              => $status,
-                            'status_from'         => $record->getOriginal('uniform_issuance_status'),
+                            'status_from'         => $statusBefore,
                             'status_to'           => $status,
                             'note'                => json_encode($note),
                         ]);
-
+                
                         if ($status === 'issued') {
-                            Notification::make()->title('Issued')->body('All items have been fully issued.')->success()->send();
+                            \Filament\Notifications\Notification::make()
+                                ->title('Issued')
+                                ->body('All items have been fully issued.')
+                                ->success()
+                                ->send();
                         } elseif ($status === 'partial') {
-                            Notification::make()->title('Partial Issued')->body('Some items have been issued. Remaining items are still pending.')->warning()->send();
+                            \Filament\Notifications\Notification::make()
+                                ->title('Partial Issued')
+                                ->body('Some items have been issued. Remaining items are still pending.')
+                                ->warning()
+                                ->send();
+                        } else {
+                            \Filament\Notifications\Notification::make()
+                                ->title('No Items Issued')
+                                ->body('No quantities were entered. Nothing was updated.')
+                                ->danger()
+                                ->send();
                         }
                     }),
 
@@ -1750,316 +1861,325 @@ class UniformIssuancesTable
                     ->color('warning')
                     ->icon('heroicon-o-banknotes')
                     ->modalWidth('4xl')
-                    ->visible(function ($record) {
-                        if ($record->uniform_issuance_status !== 'issued') {
-                            return false;
-                        }
                 
-                        $typeName      = strtolower($record->uniformIssuanceType?->uniform_issuance_type_name ?? '');
+                    // ── Visibility: show if issued + has any billable item + not all relievers ──
+                    ->visible(function ($record) {
+                        if ($record->uniform_issuance_status !== 'issued') return false;
+                
                         $billableTypes = ['new hire', 'additional', 'annual', 'salary deduct'];
                 
-                        $isBillableType = false;
-                        foreach ($billableTypes as $t) {
-                            if (str_contains($typeName, $t)) { $isBillableType = true; break; }
+                        $record->loadMissing(
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
+                            'uniformIssuanceRecipient.position'
+                        );
+                
+                        $hasBillableItem = false;
+                        foreach ($record->uniformIssuanceRecipient as $recipient) {
+                            foreach ($recipient->uniformIssuanceItem as $item) {
+                                $typeName = strtolower($item->uniformIssuanceType?->uniform_issuance_type_name ?? '');
+                                foreach ($billableTypes as $t) {
+                                    if (str_contains($typeName, $t)) { $hasBillableItem = true; break 3; }
+                                }
+                            }
+                        }
+                        if (! $hasBillableItem) return false;
+                
+                        $allRelievers = $record->uniformIssuanceRecipient->every(fn ($r) =>
+                            strtolower($r->position?->position_name ?? '') === 'reliever'
+                            || strtolower($r->employee_status ?? '') === 'reliever'
+                        );
+                        if ($allRelievers) return false;
+                
+                        // Determine which billing types exist in the items
+                        $hasSalaryDeduct    = false;
+                        $hasNonSalaryDeduct = false;
+                        foreach ($record->uniformIssuanceRecipient as $recipient) {
+                            foreach ($recipient->uniformIssuanceItem as $item) {
+                                $typeName = strtolower($item->uniformIssuanceType?->uniform_issuance_type_name ?? '');
+                                if (str_contains($typeName, 'salary deduct')) {
+                                    $hasSalaryDeduct = true;
+                                } else {
+                                    foreach (['new hire', 'additional', 'annual'] as $t) {
+                                        if (str_contains($typeName, $t)) { $hasNonSalaryDeduct = true; break; }
+                                    }
+                                }
+                            }
                         }
                 
-                        if (!$isBillableType) return false;
-                
-                        $isSalaryDeduct = str_contains($typeName, 'salary deduct');
-                
-                        $record->loadMissing('uniformIssuanceRecipient.position');
-                        $recipients = $record->uniformIssuanceRecipient;
-                
-                        if ($recipients->isNotEmpty()) {
-                            $allRelievers = $recipients->every(function ($recipient) {
-                                return strtolower($recipient->position?->position_name ?? '') === 'reliever'
-                                    || strtolower($recipient->employee_status ?? '') === 'reliever';
-                            });
-                
-                            if ($allRelievers) return false;
+                        // Salary deduct: always visible once issued
+                        // Client items: need a DR first
+                        if ($hasSalaryDeduct) return true;
+                        if ($hasNonSalaryDeduct) {
+                            return \App\Models\ForDeliveryReceipt::where('uniform_issuance_id', $record->id)->exists();
                         }
                 
-                        if ($isSalaryDeduct) return true;
-                
-                        return \App\Models\ForDeliveryReceipt::where('uniform_issuance_id', $record->id)->exists();
+                        return false;
                     })
+                
+                    // ── Hide submit button only when ALL billing types are already created ──
                     ->modalSubmitAction(function ($action, $record) {
-                        if (\App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)->exists()) {
-                            return false;
+                        $record->loadMissing(
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType'
+                        );
+                
+                        // Collect what billing types this issuance needs
+                        $needsClient       = false;
+                        $needsSalaryDeduct = false;
+                        foreach ($record->uniformIssuanceRecipient as $recipient) {
+                            foreach ($recipient->uniformIssuanceItem as $item) {
+                                $typeName = strtolower($item->uniformIssuanceType?->uniform_issuance_type_name ?? '');
+                                if (str_contains($typeName, 'salary deduct')) {
+                                    $needsSalaryDeduct = true;
+                                } else {
+                                    foreach (['new hire', 'additional', 'annual'] as $t) {
+                                        if (str_contains($typeName, $t)) { $needsClient = true; break; }
+                                    }
+                                }
+                            }
                         }
+                
+                        $existingTypes = \App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)
+                            ->pluck('billing_type')
+                            ->toArray();
+                
+                        $clientDone       = ! $needsClient       || in_array('client',        $existingTypes);
+                        $salaryDeductDone = ! $needsSalaryDeduct || in_array('salary_deduct', $existingTypes);
+                
+                        if ($clientDone && $salaryDeductDone) {
+                            return false; // hide submit — everything already billed
+                        }
+                
                         return $action;
                     })
                     ->modalCancelActionLabel('Close')
+                
+                    // ── Modal content: show existing billings or the issuance header ──────────
                     ->modalContent(function ($record) {
                         $record->load(
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             'uniformIssuanceRecipient.position',
                             'site',
-                            'uniformIssuanceType'
                         );
                 
                         $existingBillings = \App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)
                             ->latest()
                             ->get();
                 
-                        if ($existingBillings->count() > 0) {
-                            $rows = '';
-                            foreach ($existingBillings as $billing) {
-                                $statusColor = $billing->status === 'billed' ? '#16a34a' : '#d97706';
-                                $statusLabel = strtoupper($billing->status);
-                                $billedTo    = e($billing->billed_to);
-                                $total       = number_format($billing->total_price, 2);
-                                $date        = \Carbon\Carbon::parse($billing->created_at)->timezone('Asia/Manila')->format('M d, Y');
-                
-                                $typeLabel   = match ($billing->billing_type) {
-                                    'client'        => 'CLIENT',
-                                    'salary_deduct' => 'SALARY DEDUCT',
-                                    default         => 'OTHER',
-                                };
-                                $typeBgColor = match ($billing->billing_type) {
-                                    'client'        => '#1d4ed8',
-                                    'salary_deduct' => '#7c3aed',
-                                    default         => '#6b7280',
-                                };
-                
-                                $rows .= "
-                                    <tr>
-                                        <td style='padding:10px 14px;font-size:12.5px;font-weight:600;color:#111827;border-bottom:1px solid #f1f5f9;'>
-                                            {$billedTo}
-                                        </td>
-                                        <td style='padding:10px 14px;font-size:12px;text-align:center;border-bottom:1px solid #f1f5f9;'>
-                                            <span style='background:{$typeBgColor};color:#fff;font-size:9.5px;font-weight:700;
-                                                padding:3px 9px;border-radius:999px;letter-spacing:.04em;'>{$typeLabel}</span>
-                                        </td>
-                                        <td style='padding:10px 14px;font-size:13px;color:#1d4ed8;font-weight:700;
-                                            text-align:right;border-bottom:1px solid #f1f5f9;'>&#x20B1;{$total}</td>
-                                        <td style='padding:10px 14px;font-size:11.5px;color:#6b7280;
-                                            text-align:center;border-bottom:1px solid #f1f5f9;'>{$date}</td>
-                                        <td style='padding:10px 14px;text-align:center;border-bottom:1px solid #f1f5f9;'>
-                                            <span style='background:{$statusColor};color:#fff;font-size:9.5px;font-weight:700;
-                                                padding:3px 9px;border-radius:999px;letter-spacing:.04em;'>{$statusLabel}</span>
-                                        </td>
-                                    </tr>";
-                            }
-                
-                            $grandTotal = number_format($existingBillings->sum('total_price'), 2);
-                
-                            return new \Illuminate\Support\HtmlString("
-                                <div style='font-family:\"DM Sans\",system-ui,sans-serif;'>
-                
-                                    <!-- Header label -->
-                                    <div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;
-                                        letter-spacing:.08em;margin-bottom:10px;'>
-                                        Existing Billings &nbsp;({$existingBillings->count()})
-                                    </div>
-                
-                                    <!-- Table -->
-                                    <div style='border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;
-                                        box-shadow:0 1px 4px rgba(0,0,0,.05);margin-bottom:12px;'>
-                                        <table style='width:100%;border-collapse:collapse;'>
-                                            <thead>
-                                                <tr style='background:#1e3a5f;'>
-                                                    <th style='padding:10px 14px;text-align:left;font-size:10.5px;font-weight:600;
-                                                        color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Billed To</th>
-                                                    <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;
-                                                        color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Type</th>
-                                                    <th style='padding:10px 14px;text-align:right;font-size:10.5px;font-weight:600;
-                                                        color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Total</th>
-                                                    <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;
-                                                        color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Date</th>
-                                                    <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;
-                                                        color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>{$rows}</tbody>
-                                            <tfoot>
-                                                <tr style='background:#f0f9ff;border-top:2px solid #93c5fd;'>
-                                                    <td colspan='2' style='padding:10px 14px;font-size:11.5px;font-weight:600;
-                                                        color:#374151;text-align:right;'>Grand Total</td>
-                                                    <td style='padding:10px 14px;font-size:15px;font-weight:800;
-                                                        color:#1d4ed8;text-align:right;letter-spacing:-0.03em;'>&#x20B1;{$grandTotal}</td>
-                                                    <td colspan='2'></td>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-                                    </div>
-                
-                                    <!-- Locked notice -->
-                                    <div style='padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;
-                                        font-size:12px;color:#854d0e;text-align:center;font-weight:500;'>
-                                        &#9432;&nbsp; A billing already exists for this issuance. No additional billing can be added.
-                                    </div>
-                
-                                </div>
-                            ");
-                        }
-                
                         $siteName = e($record->site?->site_name ?? '—');
-                        $typeName = e($record->uniformIssuanceType?->uniform_issuance_type_name ?? '—');
                         $status   = strtoupper($record->uniform_issuance_status);
                 
-                        return new \Illuminate\Support\HtmlString("
+                        // Collect distinct issuance type names from items for the header
+                        $itemTypeNames = collect();
+                        foreach ($record->uniformIssuanceRecipient as $recipient) {
+                            foreach ($recipient->uniformIssuanceItem as $item) {
+                                $n = $item->uniformIssuanceType?->uniform_issuance_type_name;
+                                if ($n) $itemTypeNames->push($n);
+                            }
+                        }
+                        $typesDisplay = e($itemTypeNames->unique()->implode(', ') ?: '—');
+                
+                        $headerHtml = "
                             <div style='font-family:\"DM Sans\",system-ui,sans-serif;'>
                                 <div style='display:flex;align-items:center;gap:10px;padding:10px 14px;
                                     background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;'>
                                     <div style='width:8px;height:8px;border-radius:50%;background:#d97706;flex-shrink:0;'></div>
                                     <span style='font-size:13px;font-weight:600;color:#1e3a5f;'>{$siteName}</span>
                                     <span style='color:#d1d5db;'>·</span>
-                                    <span style='font-size:12.5px;color:#374151;'>{$typeName}</span>
+                                    <span style='font-size:12.5px;color:#374151;'>{$typesDisplay}</span>
                                     <span style='margin-left:auto;font-size:11px;font-weight:700;color:#1d4ed8;
                                         background:#dbeafe;padding:3px 10px;border-radius:999px;letter-spacing:.03em;'>{$status}</span>
                                 </div>
                                 <div style='font-size:12px;color:#6b7280;line-height:1.6;'>
-                                    Fill in billing details below. Upload required documents per employee where applicable.
+                                    Fill in billing details below. Items are grouped by billing type (client vs salary deduct).
+                                    Both can be billed in a single submission.
                                 </div>
-                            </div>
-                        ");
-                    })
-                    ->form(function ($record) {
-                        if (\App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)->exists()) {
-                            return [];
+                            </div>";
+                
+                        if ($existingBillings->isEmpty()) {
+                            return new \Illuminate\Support\HtmlString($headerHtml);
                         }
                 
+                        // Show existing billings summary
+                        $rows = '';
+                        foreach ($existingBillings as $billing) {
+                            $statusColor = $billing->status === 'billed' ? '#16a34a' : '#d97706';
+                            $statusLabel = strtoupper($billing->status);
+                            $billedTo    = e($billing->billed_to);
+                            $total       = number_format($billing->total_price, 2);
+                            $date        = \Carbon\Carbon::parse($billing->created_at)->timezone('Asia/Manila')->format('M d, Y');
+                            $typeLabel   = match ($billing->billing_type) {
+                                'client'        => 'CLIENT',
+                                'salary_deduct' => 'SALARY DEDUCT',
+                                default         => 'OTHER',
+                            };
+                            $typeBgColor = match ($billing->billing_type) {
+                                'client'        => '#1d4ed8',
+                                'salary_deduct' => '#7c3aed',
+                                default         => '#6b7280',
+                            };
+                            $rows .= "
+                                <tr>
+                                    <td style='padding:10px 14px;font-size:12.5px;font-weight:600;color:#111827;border-bottom:1px solid #f1f5f9;'>{$billedTo}</td>
+                                    <td style='padding:10px 14px;font-size:12px;text-align:center;border-bottom:1px solid #f1f5f9;'>
+                                        <span style='background:{$typeBgColor};color:#fff;font-size:9.5px;font-weight:700;
+                                            padding:3px 9px;border-radius:999px;letter-spacing:.04em;'>{$typeLabel}</span>
+                                    </td>
+                                    <td style='padding:10px 14px;font-size:13px;color:#1d4ed8;font-weight:700;text-align:right;border-bottom:1px solid #f1f5f9;'>&#x20B1;{$total}</td>
+                                    <td style='padding:10px 14px;font-size:11.5px;color:#6b7280;text-align:center;border-bottom:1px solid #f1f5f9;'>{$date}</td>
+                                    <td style='padding:10px 14px;text-align:center;border-bottom:1px solid #f1f5f9;'>
+                                        <span style='background:{$statusColor};color:#fff;font-size:9.5px;font-weight:700;
+                                            padding:3px 9px;border-radius:999px;letter-spacing:.04em;'>{$statusLabel}</span>
+                                    </td>
+                                </tr>";
+                        }
+                
+                        $grandTotal = number_format($existingBillings->sum('total_price'), 2);
+                
+                        $existingTable = "
+                            <div style='font-family:\"DM Sans\",system-ui,sans-serif;'>
+                                <div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;
+                                    letter-spacing:.08em;margin-bottom:10px;'>
+                                    Existing Billings &nbsp;({$existingBillings->count()})
+                                </div>
+                                <div style='border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;
+                                    box-shadow:0 1px 4px rgba(0,0,0,.05);margin-bottom:12px;'>
+                                    <table style='width:100%;border-collapse:collapse;'>
+                                        <thead>
+                                            <tr style='background:#1e3a5f;'>
+                                                <th style='padding:10px 14px;text-align:left;font-size:10.5px;font-weight:600;color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Billed To</th>
+                                                <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Type</th>
+                                                <th style='padding:10px 14px;text-align:right;font-size:10.5px;font-weight:600;color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Total</th>
+                                                <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Date</th>
+                                                <th style='padding:10px 14px;text-align:center;font-size:10.5px;font-weight:600;color:#e0f2fe;text-transform:uppercase;letter-spacing:.07em;'>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>{$rows}</tbody>
+                                        <tfoot>
+                                            <tr style='background:#f0f9ff;border-top:2px solid #93c5fd;'>
+                                                <td colspan='2' style='padding:10px 14px;font-size:11.5px;font-weight:600;color:#374151;text-align:right;'>Grand Total</td>
+                                                <td style='padding:10px 14px;font-size:15px;font-weight:800;color:#1d4ed8;text-align:right;letter-spacing:-0.03em;'>&#x20B1;{$grandTotal}</td>
+                                                <td colspan='2'></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>";
+                
+                        // Check if there are still unbilled types to show the form header too
+                        $existingTypes = $existingBillings->pluck('billing_type')->toArray();
+                        $stillHasMore  = ! in_array('client', $existingTypes) || ! in_array('salary_deduct', $existingTypes);
+                
+                        return new \Illuminate\Support\HtmlString(
+                            $existingTable . ($stillHasMore ? $headerHtml : "
+                                <div style='padding:10px 14px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;
+                                    font-size:12px;color:#854d0e;text-align:center;font-weight:500;'>
+                                    &#9432;&nbsp; All billing types for this issuance have already been created.
+                                </div>")
+                        );
+                    })
+                
+                    // ── Form: build fields based on per-item billing types ────────────────────
+                    ->form(function ($record) {
                         $record->load(
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             'uniformIssuanceRecipient.position',
                             'site',
-                            'uniformIssuanceType'
                         );
                 
-                        $typeName        = strtolower($record->uniformIssuanceType?->uniform_issuance_type_name ?? '');
-                        $isClientBilling = !str_contains($typeName, 'salary deduct');
-                        $isSalaryDeduct  = str_contains($typeName, 'salary deduct');
+                        // Determine which billing types are already done
+                        $existingTypes = \App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)
+                            ->pluck('billing_type')
+                            ->toArray();
                 
-                        $needsDrUpload = $isClientBilling && $record->uniformIssuanceRecipient->contains(
-                            fn ($r) => strtolower($r->employee_status ?? '') === 'posted'
-                        );
+                        $billableClientTypes     = ['new hire', 'additional', 'annual'];
+                        $billableSalaryTypes     = ['salary deduct'];
                 
-                        $defaultBilledTo = '';
-                        if ($isClientBilling) {
-                            $defaultBilledTo = $record->site?->client?->client_name
-                                ?? $record->site?->site_name
-                                ?? '';
-                        }
-                
-                        $grouped       = [];
-                        $recipientMeta = [];
+                        // ── Group items by billing type and employee ──────────────────────────
+                        // $clientGrouped      = [employeeName => [items...]]
+                        // $salaryGrouped      = [employeeName => [items...]]
+                        $clientGrouped   = [];
+                        $salaryGrouped   = [];
+                        $recipientMeta   = [];
                 
                         foreach ($record->uniformIssuanceRecipient as $recipient) {
-                            $isReliever = strtolower($recipient->position?->position_name ?? '') === 'reliever'
-                                || strtolower($recipient->employee_status ?? '') === 'reliever';
+                            $employeeName = $recipient->employee_name ?? '—';
+                            $empStatus    = strtolower($recipient->employee_status ?? '');
+                            $isReliever   = strtolower($recipient->position?->position_name ?? '') === 'reliever'
+                                        || $empStatus === 'reliever';
                 
-                            if ($isClientBilling && $isReliever) continue;
-                
-                            $employeeName  = $recipient->employee_name ?? '—';
-                            $employeeItems = [];
+                            $recipientMeta[$employeeName] = ['employee_status' => $empStatus, 'is_reliever' => $isReliever];
                 
                             foreach ($recipient->uniformIssuanceItem as $item) {
                                 $qty = (int) $item->released_quantity;
                                 if ($qty <= 0) continue;
-                                $key = $item->uniform_item_id . '_' . $item->uniform_item_variant_id;
-                                if (!isset($employeeItems[$key])) {
-                                    $employeeItems[$key] = [
-                                        'employee'   => $employeeName,
-                                        'item_name'  => $item->uniformItem?->uniform_item_name ?? '—',
-                                        'size'       => $item->uniformItemVariant?->uniform_item_size ?? '—',
-                                        'quantity'   => 0,
-                                        'unit_price' => (float) ($item->uniformItem?->uniform_item_price ?? 0),
-                                    ];
+                
+                                $itemTypeName = strtolower($item->uniformIssuanceType?->uniform_issuance_type_name ?? '');
+                
+                                $isSalaryDeductItem = false;
+                                foreach ($billableSalaryTypes as $t) {
+                                    if (str_contains($itemTypeName, $t)) { $isSalaryDeductItem = true; break; }
                                 }
-                                $employeeItems[$key]['quantity'] += $qty;
-                            }
                 
-                            if (!empty($employeeItems)) {
-                                $grouped[$employeeName]       = array_values($employeeItems);
-                                $recipientMeta[$employeeName] = [
-                                    'employee_status' => strtolower($recipient->employee_status ?? ''),
+                                $isClientItem = false;
+                                if (! $isSalaryDeductItem) {
+                                    foreach ($billableClientTypes as $t) {
+                                        if (str_contains($itemTypeName, $t)) { $isClientItem = true; break; }
+                                    }
+                                }
+                
+                                if (! $isSalaryDeductItem && ! $isClientItem) continue; // non-billable type
+                                if (! $isSalaryDeductItem && $isReliever) continue;     // relievers excluded from client
+                
+                                $key = $item->uniform_item_id . '_' . $item->uniform_item_variant_id . '_' . $item->uniform_issuance_type_id;
+                
+                                $rowData = [
+                                    'employee'           => $employeeName,
+                                    'item_name'          => $item->uniformItem?->uniform_item_name ?? '—',
+                                    'size'               => $item->uniformItemVariant?->uniform_item_size ?? '—',
+                                    'quantity'           => 0,
+                                    'unit_price'         => (float) ($item->uniformItem?->uniform_item_price ?? 0),
+                                    'issuance_type_name' => $item->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
+                                    'billing_type'       => $isSalaryDeductItem ? 'salary_deduct' : 'client',
                                 ];
+                
+                                if ($isSalaryDeductItem) {
+                                    if (! isset($salaryGrouped[$employeeName][$key])) {
+                                        $salaryGrouped[$employeeName][$key] = $rowData;
+                                    }
+                                    $salaryGrouped[$employeeName][$key]['quantity'] += $qty;
+                                } else {
+                                    if (! isset($clientGrouped[$employeeName][$key])) {
+                                        $clientGrouped[$employeeName][$key] = $rowData;
+                                    }
+                                    $clientGrouped[$employeeName][$key]['quantity'] += $qty;
+                                }
                             }
                         }
                 
-                        $billingItemsFlat = [];
-                        foreach ($grouped as $empItems) {
-                            foreach ($empItems as $row) {
-                                $billingItemsFlat[] = $row;
-                            }
-                        }
-                        $billingItemsJson = json_encode($billingItemsFlat, JSON_UNESCAPED_UNICODE);
+                        // Re-index to flat arrays per employee
+                        $clientGrouped = array_map(fn ($items) => array_values($items), array_filter($clientGrouped, fn ($i) => ! empty($i)));
+                        $salaryGrouped = array_map(fn ($items) => array_values($items), array_filter($salaryGrouped, fn ($i) => ! empty($i)));
                 
-                        $grandTotal = array_sum(array_map(
-                            fn ($i) => (float) ($i['unit_price'] ?? 0) * (int) ($i['quantity'] ?? 0),
-                            $billingItemsFlat
-                        ));
+                        $hasClientItems  = ! empty($clientGrouped) && ! in_array('client', $existingTypes);
+                        $hasSalaryItems  = ! empty($salaryGrouped) && ! in_array('salary_deduct', $existingTypes);
                 
-                        $empCount = count($grouped);
-                        $fields   = [];
+                        if (! $hasClientItems && ! $hasSalaryItems) return []; // nothing left to bill
                 
-                        // ── Billed To (client only) ──
-                        if ($isClientBilling) {
-                            $fields[] = \Filament\Forms\Components\TextInput::make('billed_to')
-                                ->label('Billed To (Client)')
-                                ->default($defaultBilledTo)
-                                ->required()
-                                ->columnSpanFull();
+                        // Flatten for hidden JSON fields
+                        $clientItemsFlat = [];
+                        foreach ($clientGrouped as $empItems) foreach ($empItems as $row) $clientItemsFlat[] = $row;
                 
-                            $fields[] = \Filament\Forms\Components\Placeholder::make('client_info_note')
-                                ->label('')
-                                ->content(new \Illuminate\Support\HtmlString("
-                                    <div style='font-family:\"DM Sans\",system-ui,sans-serif;padding:11px 15px;
-                                        background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
-                                        font-size:12.5px;color:#374151;line-height:1.6;'>
-                                        <strong style='color:#1e3a5f;'>Client billing</strong>
-                                        — one billing record will be created for the client.
-                                        Each employee's items are tracked individually below.
-                                        " . ($needsDrUpload
-                                            ? "<br><span style='color:#7c3aed;font-size:12px;'>
-                                                &#9432; <strong>Posted</strong> employees require a signed DR upload and DR number.
-                                            </span>"
-                                            : '') . "
-                                    </div>
-                                "))
-                                ->columnSpanFull();
-                        } else {
-                            $fields[] = \Filament\Forms\Components\Placeholder::make('salary_deduct_info')
-                                ->label('')
-                                ->content(new \Illuminate\Support\HtmlString("
-                                    <div style='font-family:\"DM Sans\",system-ui,sans-serif;padding:11px 15px;
-                                        background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;
-                                        font-size:12.5px;color:#374151;line-height:1.6;'>
-                                        <strong style='color:#4c1d95;'>Salary deduct billing</strong>
-                                        — one billing record will be created <strong>per employee</strong>.<br>
-                                        <span style='color:#7c3aed;font-size:12px;'>
-                                            &#9432; A <strong>signed ATD</strong> upload is required for each employee.
-                                        </span>
-                                    </div>
-                                "))
-                                ->columnSpanFull();
-                        }
+                        $salaryItemsFlat = [];
+                        foreach ($salaryGrouped as $empItems) foreach ($empItems as $row) $salaryItemsFlat[] = $row;
                 
-                        $fields[] = \Filament\Forms\Components\Hidden::make('status')->default('pending');
-                        $fields[] = \Filament\Forms\Components\Hidden::make('billing_items')->default($billingItemsJson);
+                        $computeTotal = fn (array $items) => array_sum(
+                            array_map(fn ($i) => (float) ($i['unit_price'] ?? 0) * (int) ($i['quantity'] ?? 0), $items)
+                        );
                 
-                        // ── Summary strip ──
-                        $fields[] = \Filament\Forms\Components\Placeholder::make('billing_summary_header')
-                            ->label('')
-                            ->content(new \Illuminate\Support\HtmlString("
-                                <div style='font-family:\"DM Sans\",system-ui,sans-serif;
-                                    display:flex;align-items:center;justify-content:space-between;
-                                    padding:10px 0 8px;border-bottom:1.5px solid #e5e7eb;margin-top:4px;'>
-                                    <span style='font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;'>
-                                        {$empCount}&nbsp;employee" . ($empCount !== 1 ? 's' : '') . "
-                                    </span>
-                                    <span style='font-size:14px;font-weight:700;color:#1d4ed8;letter-spacing:-0.03em;'>
-                                        &#x20B1;" . number_format($grandTotal, 2) . "
-                                        &nbsp;<span style='font-size:11px;font-weight:500;color:#6b7280;'>grand total</span>
-                                    </span>
-                                </div>
-                            "))
-                            ->columnSpanFull();
-                
-                        // ── Per-employee cards ──
                         $avatarStyles = [
                             ['bg' => '#E6F1FB', 'color' => '#0C447C'],
                             ['bg' => '#E1F5EE', 'color' => '#0F6E56'],
@@ -2068,387 +2188,354 @@ class UniformIssuancesTable
                             ['bg' => '#FAECE7', 'color' => '#712B13'],
                         ];
                 
-                        $empIndex = 0;
-                        foreach ($grouped as $employeeName => $empItems) {
-                            $empIndex++;
+                        $fields = [];
                 
+                        // ── Helper: build one employee card ──────────────────────────────────
+                        $buildEmpCard = function (
+                            string $employeeName,
+                            array  $empItems,
+                            int    $empIndex,
+                            array  $avatarStyles,
+                            array  $recipientMeta,
+                            bool   $showType = true
+                        ): string {
+                            $av       = $avatarStyles[($empIndex - 1) % count($avatarStyles)];
                             $empTotal = array_sum(array_map(
                                 fn ($i) => (float) ($i['unit_price'] ?? 0) * (int) ($i['quantity'] ?? 0),
                                 $empItems
                             ));
-                
                             $words    = explode(' ', trim($employeeName));
                             $initials = strtoupper(
                                 (isset($words[0]) ? substr($words[0], 0, 1) : '') .
                                 (isset($words[1]) ? substr($words[1], 0, 1) : '')
                             );
-                
-                            $av            = $avatarStyles[($empIndex - 1) % count($avatarStyles)];
-                            $empStatus     = $recipientMeta[$employeeName]['employee_status'] ?? '';
-                            $isPosted      = $empStatus === 'posted';
-                            $needsAtd      = $isSalaryDeduct;
-                            $needsDrForEmp = $isClientBilling && $isPosted;
-                            $safeKey       = 'emp_' . $empIndex;
-                
-                            $tableRows = '';
-                            foreach ($empItems as $item) {
-                                $sub        = (float) ($item['unit_price'] ?? 0) * (int) ($item['quantity'] ?? 0);
-                                $tableRows .= "
-                                    <tr>
-                                        <td style='padding:9px 16px;font-size:12.5px;color:#111827;border-bottom:1px solid #f1f5f9;'>
-                                            " . e($item['item_name']) . "
-                                        </td>
-                                        <td style='padding:9px 16px;font-size:12.5px;color:#374151;text-align:center;border-bottom:1px solid #f1f5f9;'>
-                                            " . e($item['size']) . "
-                                        </td>
-                                        <td style='padding:9px 16px;font-size:12.5px;font-weight:600;color:#1d4ed8;text-align:center;border-bottom:1px solid #f1f5f9;'>
-                                            " . (int) $item['quantity'] . "
-                                        </td>
-                                        <td style='padding:9px 16px;font-size:12.5px;color:#374151;text-align:right;border-bottom:1px solid #f1f5f9;'>
-                                            &#x20B1;" . number_format((float) $item['unit_price'], 2) . "
-                                        </td>
-                                        <td style='padding:9px 16px;font-size:12.5px;font-weight:600;color:#111827;text-align:right;border-bottom:1px solid #f1f5f9;'>
-                                            &#x20B1;" . number_format($sub, 2) . "
-                                        </td>
-                                    </tr>";
-                            }
-                
-                            // Status badge
+                            $empStatus = $recipientMeta[$employeeName]['employee_status'] ?? '';
                             $statusBadgeHtml = '';
                             if ($empStatus) {
-                                $statusBadgeColor = match($empStatus) {
-                                    'regular'      => '#16a34a',
+                                $statusBadgeColor = match ($empStatus) {
                                     'posted'       => '#7c3aed',
                                     'reliever'     => '#d97706',
                                     'probationary' => '#2563eb',
                                     'contractual'  => '#0d9488',
                                     default        => '#6b7280',
                                 };
-                                $statusBadgeHtml = "
-                                    <span style='background:{$statusBadgeColor};color:#fff;font-size:9.5px;font-weight:700;
-                                        padding:2px 9px;border-radius:999px;margin-left:8px;letter-spacing:.04em;vertical-align:middle;'>
-                                        " . strtoupper($empStatus) . "
-                                    </span>";
+                                $statusBadgeHtml = "<span style='background:{$statusBadgeColor};color:#fff;font-size:9.5px;
+                                    font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;letter-spacing:.04em;'>
+                                    " . strtoupper($empStatus) . "</span>";
                             }
                 
-                            // Upload section label — ATD or DR
-                            $uploadSectionHtml = '';
-                            if ($needsAtd) {
-                                $uploadSectionHtml = "
-                                    <div style='padding:12px 16px 4px;border-top:1px solid #ede9fe;background:#faf5ff;'>
-                                        <div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'>
-                                            <span style='width:7px;height:7px;border-radius:50%;background:#7c3aed;flex-shrink:0;display:inline-block;'></span>
-                                            <span style='font-size:11.5px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;'>
-                                                Signed ATD Required
-                                            </span>
-                                            <span style='font-size:10.5px;color:#9ca3af;font-weight:400;'>(required)</span>
-                                        </div>
-                                        <div style='font-size:11.5px;color:#6b7280;line-height:1.5;padding-left:15px;'>
-                                            Upload acknowledgement document for <strong style='color:#4c1d95;'>" . e($employeeName) . "</strong>
-                                        </div>
-                                    </div>";
-                            } elseif ($needsDrForEmp) {
-                                $uploadSectionHtml = "
-                                    <div style='padding:12px 16px 4px;border-top:1px solid #ede9fe;background:#faf5ff;'>
-                                        <div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'>
-                                            <span style='width:7px;height:7px;border-radius:50%;background:#7c3aed;flex-shrink:0;display:inline-block;'></span>
-                                            <span style='font-size:11.5px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;'>
-                                                Signed DR Required
-                                            </span>
-                                            <span style='font-size:10.5px;color:#9ca3af;font-weight:400;'>(posted employee · required)</span>
-                                        </div>
-                                        <div style='font-size:11.5px;color:#6b7280;line-height:1.5;padding-left:15px;'>
-                                            Upload signed delivery receipt for <strong style='color:#4c1d95;'>" . e($employeeName) . "</strong>
-                                        </div>
-                                    </div>";
+                            $tableRows = '';
+                            foreach ($empItems as $item) {
+                                $sub = (float) ($item['unit_price'] ?? 0) * (int) ($item['quantity'] ?? 0);
+                                $typeTag = $showType
+                                    ? "<span style='font-size:9px;background:#e0e7ff;color:#4338ca;padding:1px 6px;border-radius:999px;margin-left:4px;font-weight:600;'>"
+                                    . e($item['issuance_type_name'] ?? '') . "</span>"
+                                    : '';
+                                $tableRows .= "
+                                    <tr>
+                                        <td style='padding:8px 14px;font-size:12.5px;color:#111827;border-bottom:1px solid #f1f5f9;'>
+                                            " . e($item['item_name']) . " {$typeTag}
+                                        </td>
+                                        <td style='padding:8px 14px;font-size:12.5px;color:#374151;text-align:center;border-bottom:1px solid #f1f5f9;'>" . e($item['size']) . "</td>
+                                        <td style='padding:8px 14px;font-size:12.5px;font-weight:600;color:#1d4ed8;text-align:center;border-bottom:1px solid #f1f5f9;'>" . (int) $item['quantity'] . "</td>
+                                        <td style='padding:8px 14px;font-size:12.5px;color:#374151;text-align:right;border-bottom:1px solid #f1f5f9;'>&#x20B1;" . number_format((float) $item['unit_price'], 2) . "</td>
+                                        <td style='padding:8px 14px;font-size:12.5px;font-weight:600;color:#111827;text-align:right;border-bottom:1px solid #f1f5f9;'>&#x20B1;" . number_format($sub, 2) . "</td>
+                                    </tr>";
                             }
                 
-                            /*
-                            * The card and the upload label are ONE visual block.
-                            * The upload label is rendered inside the card's bottom section
-                            * so it always appears immediately below the items table,
-                            * flush and connected — not floating separately below.
-                            *
-                            * The actual Filament FileUpload / DatePicker / TextInput fields
-                            * are rendered by Filament right after this Placeholder, and they
-                            * sit visually inside the purple section because we give them
-                            * matching background via the wrapper below.
-                            */
-                            $cardHtml = "
-                                <div style='font-family:\"DM Sans\",system-ui,sans-serif;
-                                    border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;
-                                    box-shadow:0 1px 4px rgba(0,0,0,.05);'>
-                
-                                    <!-- Employee header -->
-                                    <div style='display:flex;align-items:center;gap:12px;
-                                        padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;'>
+                            return "
+                                <div style='font-family:\"DM Sans\",system-ui,sans-serif;border:1px solid #e2e8f0;border-radius:12px;
+                                    overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05);'>
+                                    <div style='display:flex;align-items:center;gap:12px;padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;'>
                                         <div style='width:36px;height:36px;border-radius:50%;background:{$av['bg']};flex-shrink:0;
-                                            display:flex;align-items:center;justify-content:center;
-                                            font-size:12.5px;font-weight:700;color:{$av['color']};letter-spacing:.02em;'>
+                                            display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:{$av['color']};'>
                                             {$initials}
                                         </div>
                                         <div style='flex:1;min-width:0;'>
-                                            <div style='font-size:13.5px;font-weight:600;color:#111827;
-                                                letter-spacing:-0.01em;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>
-                                                " . e($employeeName) . "
-                                                {$statusBadgeHtml}
+                                            <div style='font-size:13.5px;font-weight:600;color:#111827;display:flex;align-items:center;flex-wrap:wrap;gap:4px;'>
+                                                " . e($employeeName) . " {$statusBadgeHtml}
                                             </div>
                                             <div style='font-size:11px;color:#9ca3af;margin-top:2px;'>Employee #{$empIndex}</div>
                                         </div>
-                                        <div style='background:{$av['bg']};color:{$av['color']};
-                                            font-size:13px;font-weight:700;padding:4px 14px;
-                                            border-radius:999px;white-space:nowrap;flex-shrink:0;letter-spacing:-.01em;'>
+                                        <div style='background:{$av['bg']};color:{$av['color']};font-size:13px;font-weight:700;
+                                            padding:4px 14px;border-radius:999px;white-space:nowrap;flex-shrink:0;'>
                                             &#x20B1;" . number_format($empTotal, 2) . "
                                         </div>
                                     </div>
-                
-                                    <!-- Items table -->
                                     <div style='overflow-x:auto;'>
                                         <table style='width:100%;border-collapse:collapse;min-width:400px;'>
                                             <thead>
                                                 <tr style='background:#f1f5f9;'>
-                                                    <th style='padding:8px 16px;font-size:10.5px;font-weight:600;color:#64748b;
-                                                        text-align:left;text-transform:uppercase;letter-spacing:.07em;'>Item</th>
-                                                    <th style='padding:8px 16px;font-size:10.5px;font-weight:600;color:#64748b;
-                                                        text-align:center;text-transform:uppercase;letter-spacing:.07em;width:65px;'>Size</th>
-                                                    <th style='padding:8px 16px;font-size:10.5px;font-weight:600;color:#64748b;
-                                                        text-align:center;text-transform:uppercase;letter-spacing:.07em;width:55px;'>Qty</th>
-                                                    <th style='padding:8px 16px;font-size:10.5px;font-weight:600;color:#64748b;
-                                                        text-align:right;text-transform:uppercase;letter-spacing:.07em;width:110px;'>Unit Price</th>
-                                                    <th style='padding:8px 16px;font-size:10.5px;font-weight:600;color:#64748b;
-                                                        text-align:right;text-transform:uppercase;letter-spacing:.07em;width:100px;'>Subtotal</th>
+                                                    <th style='padding:8px 14px;font-size:10.5px;font-weight:600;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:.07em;'>Item</th>
+                                                    <th style='padding:8px 14px;font-size:10.5px;font-weight:600;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:.07em;width:65px;'>Size</th>
+                                                    <th style='padding:8px 14px;font-size:10.5px;font-weight:600;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:.07em;width:55px;'>Qty</th>
+                                                    <th style='padding:8px 14px;font-size:10.5px;font-weight:600;color:#64748b;text-align:right;text-transform:uppercase;letter-spacing:.07em;width:110px;'>Unit Price</th>
+                                                    <th style='padding:8px 14px;font-size:10.5px;font-weight:600;color:#64748b;text-align:right;text-transform:uppercase;letter-spacing:.07em;width:100px;'>Subtotal</th>
                                                 </tr>
                                             </thead>
                                             <tbody>{$tableRows}</tbody>
                                             <tfoot>
                                                 <tr style='background:#f0f9ff;border-top:1px solid #bfdbfe;'>
-                                                    <td colspan='4' style='padding:8px 16px;font-size:11.5px;
-                                                        font-weight:500;color:#6b7280;text-align:right;'>
-                                                        Employee total
-                                                    </td>
-                                                    <td style='padding:8px 16px;font-size:14px;font-weight:700;
-                                                        color:#1d4ed8;text-align:right;letter-spacing:-.02em;'>
+                                                    <td colspan='4' style='padding:8px 14px;font-size:11.5px;font-weight:500;color:#6b7280;text-align:right;'>Employee total</td>
+                                                    <td style='padding:8px 14px;font-size:14px;font-weight:700;color:#1d4ed8;text-align:right;'>
                                                         &#x20B1;" . number_format($empTotal, 2) . "
                                                     </td>
                                                 </tr>
                                             </tfoot>
                                         </table>
                                     </div>
-                
-                                    {$uploadSectionHtml}
                                 </div>";
+                        };
                 
-                            $fields[] = \Filament\Forms\Components\Placeholder::make('emp_card_' . $empIndex)
+                        // ═══════════════════════════════════════════════════════════════════
+                        // SECTION A — CLIENT BILLING
+                        // ═══════════════════════════════════════════════════════════════════
+                        if ($hasClientItems) {
+                            $clientTotal    = $computeTotal($clientItemsFlat);
+                            $clientEmpCount = count($clientGrouped);
+                
+                            // Does any posted employee exist?
+                            $hasPostedClient = false;
+                            foreach ($clientGrouped as $empName => $_) {
+                                if (($recipientMeta[$empName]['employee_status'] ?? '') === 'posted') {
+                                    $hasPostedClient = true;
+                                    break;
+                                }
+                            }
+                
+                            $fields[] = \Filament\Forms\Components\Placeholder::make('client_section_header')
                                 ->label('')
-                                ->content(new \Illuminate\Support\HtmlString($cardHtml))
+                                ->content(new \Illuminate\Support\HtmlString("
+                                    <div style='font-family:\"DM Sans\",system-ui,sans-serif;padding:11px 15px;
+                                        background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-top:8px;'>
+                                        <div style='font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:4px;'>
+                                            🏢 Client Billing
+                                        </div>
+                                        <div style='font-size:12px;color:#374151;line-height:1.6;'>
+                                            One billing record will be created for the client covering
+                                            <strong>{$clientEmpCount} employee" . ($clientEmpCount !== 1 ? 's' : '') . "</strong>
+                                            — total <strong>&#x20B1;" . number_format($clientTotal, 2) . "</strong>.
+                                            " . ($hasPostedClient ? "<br><span style='color:#7c3aed;font-size:11.5px;'>
+                                                &#9432; Posted employees require a signed DR upload.
+                                            </span>" : '') . "
+                                        </div>
+                                    </div>
+                                "))
                                 ->columnSpanFull();
                 
-                            // ── ATD upload fields — rendered immediately after the card, styled to connect ──
-                            if ($needsAtd) {
+                            $fields[] = \Filament\Forms\Components\TextInput::make('client_billed_to')
+                                ->label('Billed To (Client)')
+                                ->default($record->site?->site_name ?? '')
+                                ->required()
+                                ->columnSpanFull();
+                
+                            $fields[] = \Filament\Forms\Components\Hidden::make('client_billing_items')
+                                ->default(json_encode($clientItemsFlat, JSON_UNESCAPED_UNICODE));
+                
+                            // Summary strip
+                            $fields[] = \Filament\Forms\Components\Placeholder::make('client_summary_strip')
+                                ->label('')
+                                ->content(new \Illuminate\Support\HtmlString("
+                                    <div style='display:flex;align-items:center;justify-content:space-between;
+                                        padding:8px 0;border-bottom:1.5px solid #e5e7eb;margin-top:4px;'>
+                                        <span style='font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;'>
+                                            {$clientEmpCount} employee" . ($clientEmpCount !== 1 ? 's' : '') . "
+                                        </span>
+                                        <span style='font-size:14px;font-weight:700;color:#1d4ed8;'>
+                                            &#x20B1;" . number_format($clientTotal, 2) . "
+                                        </span>
+                                    </div>
+                                "))
+                                ->columnSpanFull();
+                
+                            // Per-employee cards + optional DR upload for posted employees
+                            $empIndex = 0;
+                            $clientEmpNames = array_keys($clientGrouped);
+                            foreach ($clientGrouped as $employeeName => $empItems) {
+                                $empIndex++;
+                                $safeKey   = 'client_emp_' . $empIndex;
+                                $isPosted  = ($recipientMeta[$employeeName]['employee_status'] ?? '') === 'posted';
+                
+                                $uploadSectionHtml = '';
+                                if ($isPosted) {
+                                    $uploadSectionHtml = "
+                                        <div style='padding:12px 16px 4px;border-top:1px solid #ede9fe;background:#faf5ff;'>
+                                            <div style='font-size:11.5px;font-weight:700;color:#7c3aed;text-transform:uppercase;
+                                                letter-spacing:.06em;margin-bottom:4px;'>&#9432; Signed DR Required</div>
+                                            <div style='font-size:11.5px;color:#6b7280;'>
+                                                Upload signed delivery receipt for <strong>" . e($employeeName) . "</strong>
+                                            </div>
+                                        </div>";
+                                }
+                
+                                $cardHtml = $buildEmpCard($employeeName, $empItems, $empIndex, $avatarStyles, $recipientMeta, true);
+                                // Inject upload section into bottom of card
+                                $cardHtml = str_replace('</div>', $uploadSectionHtml . '</div>', $cardHtml);
+                
+                                $fields[] = \Filament\Forms\Components\Placeholder::make('client_card_' . $empIndex)
+                                    ->label('')
+                                    ->content(new \Illuminate\Support\HtmlString($cardHtml))
+                                    ->columnSpanFull();
+                
+                                if ($isPosted) {
+                                    $fields[] = \Filament\Forms\Components\TextInput::make("dr_number_{$safeKey}")
+                                        ->label('DR Number for ' . $employeeName)
+                                        ->placeholder('e.g. DR-2024-001')
+                                        ->required();
+                
+                                    $fields[] = \Filament\Forms\Components\FileUpload::make("dr_image_{$safeKey}")
+                                        ->label('Signed DR Image')
+                                        ->image()
+                                        ->imagePreviewHeight('130')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+                                        ->directory('billing-dr')
+                                        ->required()
+                                        ->columnSpanFull();
+                
+                                    $fields[] = \Filament\Forms\Components\DatePicker::make("dr_date_signed_{$safeKey}")
+                                        ->label('DR Date Signed')
+                                        ->default(now()->toDateString())
+                                        ->required();
+                
+                                    $fields[] = \Filament\Forms\Components\TextInput::make("dr_remarks_{$safeKey}")
+                                        ->label('DR Remarks')
+                                        ->placeholder('Optional');
+                                }
+                
+                                if ($empIndex < $clientEmpCount) {
+                                    $fields[] = \Filament\Forms\Components\Placeholder::make('client_div_' . $empIndex)
+                                        ->label('')
+                                        ->content(new \Illuminate\Support\HtmlString("<div style='border-top:1px dashed #e2e8f0;margin:12px 0 14px;'></div>"))
+                                        ->columnSpanFull();
+                                }
+                            }
+                        }
+                
+                        // ═══════════════════════════════════════════════════════════════════
+                        // SECTION B — SALARY DEDUCT BILLING
+                        // ═══════════════════════════════════════════════════════════════════
+                        if ($hasSalaryItems) {
+                            $salaryTotal    = $computeTotal($salaryItemsFlat);
+                            $salaryEmpCount = count($salaryGrouped);
+                
+                            // Divider between sections
+                            if ($hasClientItems) {
+                                $fields[] = \Filament\Forms\Components\Placeholder::make('section_divider')
+                                    ->label('')
+                                    ->content(new \Illuminate\Support\HtmlString(
+                                        "<div style='border-top:2px dashed #e5e7eb;margin:20px 0 16px;'></div>"
+                                    ))
+                                    ->columnSpanFull();
+                            }
+                
+                            $fields[] = \Filament\Forms\Components\Placeholder::make('salary_section_header')
+                                ->label('')
+                                ->content(new \Illuminate\Support\HtmlString("
+                                    <div style='font-family:\"DM Sans\",system-ui,sans-serif;padding:11px 15px;
+                                        background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;'>
+                                        <div style='font-size:13px;font-weight:700;color:#4c1d95;margin-bottom:4px;'>
+                                            💳 Salary Deduct Billing
+                                        </div>
+                                        <div style='font-size:12px;color:#374151;line-height:1.6;'>
+                                            One billing record per employee will be created — <strong>{$salaryEmpCount} record" . ($salaryEmpCount !== 1 ? 's' : '') . "</strong>
+                                            totalling <strong>&#x20B1;" . number_format($salaryTotal, 2) . "</strong>.
+                                            <br><span style='color:#7c3aed;font-size:11.5px;'>
+                                                &#9432; A signed ATD upload is required for each employee.
+                                            </span>
+                                        </div>
+                                    </div>
+                                "))
+                                ->columnSpanFull();
+                
+                            $fields[] = \Filament\Forms\Components\Hidden::make('salary_billing_items')
+                                ->default(json_encode($salaryItemsFlat, JSON_UNESCAPED_UNICODE));
+                
+                            $empIndex = 0;
+                            $salaryEmpNames = array_keys($salaryGrouped);
+                            foreach ($salaryGrouped as $employeeName => $empItems) {
+                                $empIndex++;
+                                $safeKey = 'salary_emp_' . $empIndex;
+                
+                                $uploadSectionHtml = "
+                                    <div style='padding:12px 16px 4px;border-top:1px solid #ede9fe;background:#faf5ff;'>
+                                        <div style='font-size:11.5px;font-weight:700;color:#7c3aed;text-transform:uppercase;
+                                            letter-spacing:.06em;margin-bottom:4px;'>&#9432; Signed ATD Required</div>
+                                        <div style='font-size:11.5px;color:#6b7280;'>
+                                            Upload acknowledgement for <strong>" . e($employeeName) . "</strong>
+                                        </div>
+                                    </div>";
+                
+                                $cardHtml = $buildEmpCard($employeeName, $empItems, $empIndex, $avatarStyles, $recipientMeta, true);
+                                $cardHtml = str_replace('</div>', $uploadSectionHtml . '</div>', $cardHtml);
+                
+                                $fields[] = \Filament\Forms\Components\Placeholder::make('salary_card_' . $empIndex)
+                                    ->label('')
+                                    ->content(new \Illuminate\Support\HtmlString($cardHtml))
+                                    ->columnSpanFull();
+                
                                 $fields[] = \Filament\Forms\Components\FileUpload::make("atd_image_{$safeKey}")
-                                    ->label('ATD Document')
-                                    ->helperText('Upload the signed Acknowledgement/ATD for ' . $employeeName)
+                                    ->label('ATD Document for ' . $employeeName)
                                     ->image()
                                     ->imagePreviewHeight('130')
                                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
                                     ->directory('billing-atd')
                                     ->required()
-                                    ->columnSpanFull()
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;border:1px solid #e9d5ff;border-top:0;
-                                            border-radius:0 0 12px 12px;padding:14px 16px;margin-top:-2px;',
-                                    ]);
+                                    ->columnSpanFull();
                 
                                 $fields[] = \Filament\Forms\Components\DatePicker::make("atd_date_signed_{$safeKey}")
-                                    ->label('Date Signed')
+                                    ->label('ATD Date Signed')
                                     ->default(now()->toDateString())
-                                    ->required()
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;',
-                                    ]);
+                                    ->required();
                 
                                 $fields[] = \Filament\Forms\Components\TextInput::make("atd_remarks_{$safeKey}")
-                                    ->label('Remarks')
-                                    ->placeholder('Optional notes')
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;',
-                                    ]);
-                            }
+                                    ->label('ATD Remarks')
+                                    ->placeholder('Optional');
                 
-                            // ── DR upload fields — same treatment ──
-                            if ($needsDrForEmp) {
-                                $fields[] = \Filament\Forms\Components\TextInput::make("dr_number_{$safeKey}")
-                                    ->label('DR Number')
-                                    ->placeholder('e.g. DR-2024-001')
-                                    ->required()
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;border:1px solid #e9d5ff;border-top:0;
-                                            border-radius:0;padding:14px 16px;margin-top:-2px;',
-                                    ]);
-                
-                                $fields[] = \Filament\Forms\Components\FileUpload::make("dr_image_{$safeKey}")
-                                    ->label('Signed DR Image')
-                                    ->helperText('Upload the signed Delivery Receipt for ' . $employeeName)
-                                    ->image()
-                                    ->imagePreviewHeight('130')
-                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-                                    ->directory('billing-dr')
-                                    ->required()
-                                    ->columnSpanFull()
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;border:1px solid #e9d5ff;border-top:0;
-                                            border-radius:0;padding:14px 16px;margin-top:-2px;',
-                                    ]);
-                
-                                $fields[] = \Filament\Forms\Components\DatePicker::make("dr_date_signed_{$safeKey}")
-                                    ->label('Date Signed')
-                                    ->default(now()->toDateString())
-                                    ->required()
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;',
-                                    ]);
-                
-                                $fields[] = \Filament\Forms\Components\TextInput::make("dr_remarks_{$safeKey}")
-                                    ->label('Remarks')
-                                    ->placeholder('Optional notes')
-                                    ->extraAttributes([
-                                        'style' => 'background:#faf5ff;border:1px solid #e9d5ff;border-top:0;
-                                            border-radius:0 0 12px 12px;padding:14px 16px;margin-top:-2px;',
-                                    ]);
-                            }
-                
-                            if ($empIndex < $empCount) {
-                                $fields[] = \Filament\Forms\Components\Placeholder::make('emp_divider_' . $empIndex)
-                                    ->label('')
-                                    ->content(new \Illuminate\Support\HtmlString(
-                                        "<div style='border-top:1px dashed #e2e8f0;margin:14px 0 16px;'></div>"
-                                    ))
-                                    ->columnSpanFull();
+                                if ($empIndex < $salaryEmpCount) {
+                                    $fields[] = \Filament\Forms\Components\Placeholder::make('salary_div_' . $empIndex)
+                                        ->label('')
+                                        ->content(new \Illuminate\Support\HtmlString("<div style='border-top:1px dashed #e2e8f0;margin:12px 0 14px;'></div>"))
+                                        ->columnSpanFull();
+                                }
                             }
                         }
                 
                         return $fields;
                     })
+                
+                    // ── Action: create billing records per type ────────────────────────────────
                     ->action(function ($record, array $data, Action $action) {
-                        if (\App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)->exists()) {
-                            return;
-                        }
-
                         $record->load(
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             'uniformIssuanceRecipient.position',
-                            'uniformIssuanceType'
+                            'site',
                         );
-
-                        $typeName        = strtolower($record->uniformIssuanceType?->uniform_issuance_type_name ?? '');
-                        $isClientBilling = !str_contains($typeName, 'salary deduct');
-                        $isSalaryDeduct  = str_contains($typeName, 'salary deduct');
-
-                        $billingItems = json_decode($data['billing_items'] ?? '[]', true);
-
-                        if (!is_array($billingItems) || empty($billingItems)) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('No billing items')
-                                ->body('Could not read billing items. Please try again.')
-                                ->warning()
-                                ->send();
-                            $action->halt();
-                            return;
-                        }
-
+                
+                        $existingTypes = \App\Models\UniformIssuanceBilling::where('uniform_issuance_id', $record->id)
+                            ->pluck('billing_type')
+                            ->toArray();
+                
                         $computeTotal = fn (array $items) => array_sum(
                             array_map(fn ($i) => (float) ($i['unit_price'] ?? 0) * (int) ($i['quantity'] ?? 0), $items)
                         );
-
-                        // ── Rebuild grouped + recipientMeta from recipients (same order as form) ──
-                        $grouped       = [];
-                        $recipientMeta = [];
-
-                        foreach ($record->uniformIssuanceRecipient as $recipient) {
-                            $isReliever = strtolower($recipient->position?->position_name ?? '') === 'reliever'
-                                || strtolower($recipient->employee_status ?? '') === 'reliever';
-
-                            if ($isClientBilling && $isReliever) continue;
-
-                            $name = $recipient->employee_name ?? '—';
-
-                            $recipientMeta[$name] = [
-                                'employee_status' => strtolower($recipient->employee_status ?? ''),
-                            ];
-
-                            // Pull this employee's items from the decoded billing_items JSON
-                            $grouped[$name] = array_values(array_filter(
-                                $billingItems,
-                                fn ($i) => ($i['employee'] ?? '') === $name
-                            ));
-                        }
-
-                        // Remove employees with no items
-                        $grouped = array_filter($grouped, fn ($items) => !empty($items));
-
-                        // ── Build empIndexMap matching the form's $empIndex counter ──
-                        $empIndexMap = [];
-                        $idx = 0;
-                        foreach ($grouped as $empName => $_) {
-                            $idx++;
-                            $empIndexMap[$empName] = $idx;
-                        }
-
-                        if ($isClientBilling) {
-                            $total = $computeTotal($billingItems);
-
-                            $billing = \App\Models\UniformIssuanceBilling::create([
-                                'uniform_issuance_id'   => $record->id,
-                                'billed_to'             => $data['billed_to'] ?? $record->site?->site_name ?? '—',
-                                'billing_type'          => 'client',
-                                'billing_items'         => $billingItems,
-                                'employee_attachments'  => null,
-                                'total_price'           => $total,
-                                'status'                => 'pending',
-                                'billed_at'             => null,
-                                'created_by'            => \Illuminate\Support\Facades\Auth::id(),
-                                'signed_receiving_copy' => null,
-                            ]);
-
-                            foreach ($grouped as $empName => $items) {
-                                $empStatus = $recipientMeta[$empName]['employee_status'] ?? '';
-                                $safeKey   = 'emp_' . ($empIndexMap[$empName] ?? 0);
-
-                                if ($empStatus === 'posted') {
-                                    \App\Models\BillingDr::create([
-                                        'billable_id'     => $billing->id,
-                                        'billable_type'   => \App\Models\UniformIssuanceBilling::class,
-                                        'sourceable_id'   => $record->id,
-                                        'sourceable_type' => \App\Models\UniformIssuances::class,
-                                        'employee_name'   => $empName,
-                                        'dr_number'       => $data["dr_number_{$safeKey}"]    ?? '—',
-                                        'date_signed'     => $data["dr_date_signed_{$safeKey}"] ?? null,
-                                        'dr_image'        => $data["dr_image_{$safeKey}"]     ?? null,
-                                        'remarks'         => $data["dr_remarks_{$safeKey}"]   ?? null,
-                                        'uploaded_by'     => \Illuminate\Support\Facades\Auth::id(),
-                                    ]);
-                                }
-                            }
-
-                            \Filament\Notifications\Notification::make()
-                                ->title('Billing Created')
-                                ->body('Client billing of ₱' . number_format($total, 2) . ' saved successfully.')
-                                ->success()
-                                ->send();
-
-                        } elseif ($isSalaryDeduct) {
-                            $count = 0;
-
-                            foreach ($grouped as $employeeName => $items) {
-                                $total   = $computeTotal($items);
-                                $safeKey = 'emp_' . ($empIndexMap[$employeeName] ?? 0);
-
+                
+                        $created = [];
+                
+                        // ── CLIENT BILLING ────────────────────────────────────────────────
+                        $clientItemsRaw = $data['client_billing_items'] ?? null;
+                        if ($clientItemsRaw && ! in_array('client', $existingTypes)) {
+                            $clientItems = json_decode($clientItemsRaw, true);
+                
+                            if (is_array($clientItems) && ! empty($clientItems)) {
+                                $total = $computeTotal($clientItems);
+                
                                 $billing = \App\Models\UniformIssuanceBilling::create([
                                     'uniform_issuance_id'   => $record->id,
-                                    'billed_to'             => $employeeName,
-                                    'billing_type'          => 'salary_deduct',
-                                    'billing_items'         => $items,
+                                    'billed_to'             => $data['client_billed_to'] ?? $record->site?->site_name ?? '—',
+                                    'billing_type'          => 'client',
+                                    'billing_items'         => $clientItems,
                                     'employee_attachments'  => null,
                                     'total_price'           => $total,
                                     'status'                => 'pending',
@@ -2456,47 +2543,108 @@ class UniformIssuancesTable
                                     'created_by'            => \Illuminate\Support\Facades\Auth::id(),
                                     'signed_receiving_copy' => null,
                                 ]);
-
-                                \App\Models\BillingAtd::create([
-                                    'uniform_issuance_id'         => $record->id,
-                                    'uniform_issuance_billing_id' => $billing->id,
-                                    'employee_name'               => $employeeName,
-                                    'date_signed'                 => $data["atd_date_signed_{$safeKey}"] ?? null,
-                                    'atd_image'                   => $data["atd_image_{$safeKey}"]       ?? null,
-                                    'remarks'                     => $data["atd_remarks_{$safeKey}"]     ?? null,
-                                    'uploaded_by'                 => \Illuminate\Support\Facades\Auth::id(),
-                                ]);
-
-                                $count++;
+                
+                                // DR uploads for posted employees
+                                // Rebuild employee index map for client group
+                                $clientEmpIndex = 0;
+                                $seenEmps = [];
+                                foreach ($clientItems as $item) {
+                                    $empName = $item['employee'] ?? '';
+                                    if ($empName && ! isset($seenEmps[$empName])) {
+                                        $seenEmps[$empName] = true;
+                                        $clientEmpIndex++;
+                
+                                        $empStatus = '';
+                                        foreach ($record->uniformIssuanceRecipient as $r) {
+                                            if ($r->employee_name === $empName) {
+                                                $empStatus = strtolower($r->employee_status ?? '');
+                                                break;
+                                            }
+                                        }
+                
+                                        if ($empStatus === 'posted') {
+                                            $safeKey = 'client_emp_' . $clientEmpIndex;
+                                            \App\Models\BillingDr::create([
+                                                'billable_id'     => $billing->id,
+                                                'billable_type'   => \App\Models\UniformIssuanceBilling::class,
+                                                'sourceable_id'   => $record->id,
+                                                'sourceable_type' => \App\Models\UniformIssuances::class,
+                                                'employee_name'   => $empName,
+                                                'dr_number'       => $data["dr_number_{$safeKey}"]      ?? '—',
+                                                'date_signed'     => $data["dr_date_signed_{$safeKey}"] ?? null,
+                                                'dr_image'        => $data["dr_image_{$safeKey}"]       ?? null,
+                                                'remarks'         => $data["dr_remarks_{$safeKey}"]     ?? null,
+                                                'uploaded_by'     => \Illuminate\Support\Facades\Auth::id(),
+                                            ]);
+                                        }
+                                    }
+                                }
+                
+                                $created[] = 'Client billing ₱' . number_format($total, 2);
                             }
-
-                            \Filament\Notifications\Notification::make()
-                                ->title('Billings Created')
-                                ->body("{$count} salary deduct billing(s) created successfully.")
-                                ->success()
-                                ->send();
-
-                        } else {
-                            $total = $computeTotal($billingItems);
-
-                            \App\Models\UniformIssuanceBilling::create([
-                                'uniform_issuance_id'   => $record->id,
-                                'billed_to'             => $data['billed_to'] ?? '—',
-                                'billing_type'          => 'other',
-                                'billing_items'         => $billingItems,
-                                'employee_attachments'  => null,
-                                'total_price'           => $total,
-                                'status'                => 'pending',
-                                'billed_at'             => null,
-                                'created_by'            => \Illuminate\Support\Facades\Auth::id(),
-                                'signed_receiving_copy' => null,
-                            ]);
-
-                            \Filament\Notifications\Notification::make()
-                                ->title('Billing Saved')
-                                ->success()
-                                ->send();
                         }
+                
+                        // ── SALARY DEDUCT BILLING ─────────────────────────────────────────
+                        $salaryItemsRaw = $data['salary_billing_items'] ?? null;
+                        if ($salaryItemsRaw && ! in_array('salary_deduct', $existingTypes)) {
+                            $salaryItems = json_decode($salaryItemsRaw, true);
+                
+                            if (is_array($salaryItems) && ! empty($salaryItems)) {
+                                // Group by employee
+                                $salaryGrouped = [];
+                                foreach ($salaryItems as $item) {
+                                    $emp = $item['employee'] ?? '—';
+                                    $salaryGrouped[$emp][] = $item;
+                                }
+                
+                                $salaryEmpIndex = 0;
+                                foreach ($salaryGrouped as $employeeName => $items) {
+                                    $salaryEmpIndex++;
+                                    $safeKey = 'salary_emp_' . $salaryEmpIndex;
+                                    $total   = $computeTotal($items);
+                
+                                    $billing = \App\Models\UniformIssuanceBilling::create([
+                                        'uniform_issuance_id'   => $record->id,
+                                        'billed_to'             => $employeeName,
+                                        'billing_type'          => 'salary_deduct',
+                                        'billing_items'         => $items,
+                                        'employee_attachments'  => null,
+                                        'total_price'           => $total,
+                                        'status'                => 'pending',
+                                        'billed_at'             => null,
+                                        'created_by'            => \Illuminate\Support\Facades\Auth::id(),
+                                        'signed_receiving_copy' => null,
+                                    ]);
+                
+                                    \App\Models\BillingAtd::create([
+                                        'uniform_issuance_id'         => $record->id,
+                                        'uniform_issuance_billing_id' => $billing->id,
+                                        'employee_name'               => $employeeName,
+                                        'date_signed'                 => $data["atd_date_signed_{$safeKey}"] ?? null,
+                                        'atd_image'                   => $data["atd_image_{$safeKey}"]       ?? null,
+                                        'remarks'                     => $data["atd_remarks_{$safeKey}"]     ?? null,
+                                        'uploaded_by'                 => \Illuminate\Support\Facades\Auth::id(),
+                                    ]);
+                                }
+                
+                                $created[] = count($salaryGrouped) . ' salary deduct billing(s) ₱' . number_format($computeTotal($salaryItems), 2);
+                            }
+                        }
+                
+                        if (empty($created)) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Nothing to Bill')
+                                ->body('No new billing records were created.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+                
+                        \Filament\Notifications\Notification::make()
+                            ->title('Billing Created')
+                            ->body(implode(' · ', $created))
+                            ->success()
+                            ->send();
                     }),
             ])
             ->toolbarActions([

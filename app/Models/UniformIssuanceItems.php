@@ -34,4 +34,9 @@ class UniformIssuanceItems extends Model
     public function uniformItemVariant() : BelongsTo {
         return $this->belongsTo(UniformItemVariants::class, 'uniform_item_variant_id', 'id');
     }
+
+    public function uniformIssuanceType()
+    {
+        return $this->belongsTo(\App\Models\UniformIssuanceType::class, 'uniform_issuance_type_id');
+    }
 }

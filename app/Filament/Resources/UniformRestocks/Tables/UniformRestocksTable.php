@@ -153,7 +153,6 @@ class UniformRestocksTable
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Close'),
 
-
                 // ─── EDIT: only when pending ───────────────────────────────
                 EditAction::make()
                     ->visible(fn ($record) => $record->status === 'pending'),
@@ -169,7 +168,10 @@ class UniformRestocksTable
                         $fields = [];
 
                         foreach ($record->uniformRestockItem as $item) {
-                            $remaining = (int) $item->remaining_quantity;
+                            $remaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($remaining <= 0) continue;
 
                             $itemName = $item->uniformItem?->uniform_item_name ?? '—';
@@ -194,10 +196,14 @@ class UniformRestocksTable
                         foreach ($record->uniformRestockItem as $item) {
                             $deliver = (int) ($data["item_{$item->id}_deliver"] ?? 0);
 
+                            $currentRemaining = (int) $item->remaining_quantity > 0
+                                ? (int) $item->remaining_quantity
+                                : (int) $item->quantity;
+
                             if ($deliver > 0) {
                                 $item->update([
                                     'delivered_quantity' => (int) $item->delivered_quantity + $deliver,
-                                    'remaining_quantity' => max(0, (int) $item->remaining_quantity - $deliver),
+                                    'remaining_quantity' => max(0, $currentRemaining - $deliver),
                                 ]);
 
                                 $variant = UniformItemVariants::find($item->uniform_item_variant_id);
@@ -231,6 +237,8 @@ class UniformRestocksTable
                             $newStatus = 'partial';
                         }
 
+                        $statusBefore = $record->getOriginal('status');
+
                         $record->update([
                             'status'       => $newStatus,
                             'delivered_at' => $newStatus === 'delivered' ? now()->toDateString() : null,
@@ -241,15 +249,29 @@ class UniformRestocksTable
                             'uniform_restock_id' => $record->id,
                             'user_id'            => Auth::id(),
                             'action'             => $newStatus,
-                            'status_from'        => $record->getOriginal('status'),
+                            'status_from'        => $statusBefore,
                             'status_to'          => $newStatus,
                             'note'               => json_encode($note),
                         ]);
 
                         if ($newStatus === 'delivered') {
-                            Notification::make()->title('Fully Delivered')->body('All items delivered and added to inventory.')->success()->send();
+                            Notification::make()
+                                ->title('Fully Delivered')
+                                ->body('All items delivered and added to inventory.')
+                                ->success()
+                                ->send();
+                        } elseif ($newStatus === 'partial') {
+                            Notification::make()
+                                ->title('Partially Delivered')
+                                ->body('Some items delivered. Remaining still pending.')
+                                ->warning()
+                                ->send();
                         } else {
-                            Notification::make()->title('Partially Delivered')->body('Some items delivered. Remaining still pending.')->warning()->send();
+                            Notification::make()
+                                ->title('No Items Delivered')
+                                ->body('No quantities were entered. Nothing was updated.')
+                                ->danger()
+                                ->send();
                         }
                     }),
 

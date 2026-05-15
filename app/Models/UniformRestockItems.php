@@ -21,6 +21,11 @@ class UniformRestockItems extends Model
         'remaining_quantity'        => 'integer',
     ];
 
+    protected $attributes = [
+        'delivered_quantity' => 0,
+        'remaining_quantity' => 0,
+    ];
+
     public function uniformRestock() : BelongsTo {
         return $this->belongsTo(UniformRestocks::class, 'uniform_restock_id', 'id');
     }

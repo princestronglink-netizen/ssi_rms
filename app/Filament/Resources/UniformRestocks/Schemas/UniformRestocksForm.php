@@ -126,18 +126,18 @@ class UniformRestocksForm
                         TextInput::make('delivered_quantity')
                             ->label('Delivered Qty')
                             ->numeric()
-                            ->hidden()
                             ->default(0)
                             ->minValue(0)
+                            ->hidden()
                             ->disabled()
                             ->dehydrated(true),
 
                         TextInput::make('remaining_quantity')
                             ->label('Remaining Qty')
                             ->numeric()
-                            ->hidden()
                             ->default(0)
                             ->minValue(0)
+                            ->hidden()
                             ->disabled()
                             ->dehydrated(true),
                     ])

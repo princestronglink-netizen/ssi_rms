@@ -27,17 +27,16 @@ class UniformIssuancesForm
                     ->relationship('site', 'site_name')
                     ->searchable()
                     ->preload(),
-                Select::make('uniform_issuance_type_id')
-                    ->required()
-                    ->relationship('uniformIssuanceType', 'uniform_issuance_type_name')
-                    ->searchable()
-                    ->preload(),
+
+                // ── Removed top-level uniform_issuance_type_id ──
+                // Type is now set per-item inside the repeater
+
                 Select::make('uniform_issuance_status')
                     ->options(['pending' => 'Pending', 'issued' => 'Issued'])
                     ->required()
                     ->live()
                     ->default('pending')
-                    ->afterStateUpdated(function ($state, callable $set, callable $get){
+                    ->afterStateUpdated(function ($state, callable $set) {
                         if ($state === 'pending') {
                             $set('pending_at', now()->toDateString());
                             $set('issued_at', null);
@@ -90,9 +89,10 @@ class UniformIssuancesForm
                                 $setItems = UniformSetItems::where('uniform_set_id', $state)
                                     ->get()
                                     ->map(fn ($item) => [
-                                        'uniform_item_id'         => $item->uniform_item_id,
-                                        'uniform_item_variant_id' => null,
-                                        'quantity'                => $item->quantity,
+                                        'uniform_item_id'           => $item->uniform_item_id,
+                                        'uniform_item_variant_id'   => null,
+                                        'uniform_issuance_type_id'  => null, // will need manual selection
+                                        'quantity'                  => $item->quantity,
                                     ])
                                     ->toArray();
 
@@ -102,12 +102,22 @@ class UniformIssuancesForm
                         Repeater::make('uniformIssuanceItem')
                             ->relationship('uniformIssuanceItem')
                             ->schema([
+                                // ── Issuance Type per item ──────────────────
+                                Select::make('uniform_issuance_type_id')
+                                    ->label('Issuance Type')
+                                    ->relationship('uniformIssuanceType', 'uniform_issuance_type_name')
+                                    ->required()
+                                    ->searchable()
+                                    ->preload()
+                                    ->columnSpan(3),
+
                                 Select::make('uniform_item_id')
                                     ->options(UniformItems::pluck('uniform_item_name', 'id'))
                                     ->required()
                                     ->searchable()
                                     ->reactive()
                                     ->afterStateUpdated(fn (callable $set) => $set('uniform_item_variant_id', null)),
+
                                 Select::make('uniform_item_variant_id')
                                     ->options(function (callable $get) {
                                         $itemId = $get('uniform_item_id');
@@ -134,6 +144,7 @@ class UniformIssuancesForm
                                         $stock = (int) $variant->uniform_item_quantity;
                                         return $stock > 0 ? 'success' : 'danger';
                                     }),
+
                                 TextInput::make('quantity')
                                     ->numeric()
                                     ->required()
@@ -153,16 +164,19 @@ class UniformIssuancesForm
                                             };
                                         }
                                     ]),
+
                                 TextInput::make('released_quantity')
                                     ->numeric()
                                     ->default(0)
                                     ->hidden()
                                     ->dehydrated(),
+
                                 TextInput::make('remaining_quantity')
                                     ->numeric()
                                     ->default(0)
                                     ->hidden()
                                     ->dehydrated(),
+
                                 Placeholder::make('stock_summary')
                                     ->content(function (callable $get) {
                                         $variantId = $get('uniform_item_variant_id');
@@ -173,14 +187,16 @@ class UniformIssuancesForm
                                         $stock = (int) $variant->uniform_item_quantity;
                                         $remaining = $stock - $qty;
                                         $color = $remaining < 0 ? '#dc2626' : ($remaining === 0 ? '#d97706' : '#16a34a');
-                                        $status = $remaining < 0 ? "⛔ Over by " . abs($remaining) : ($remaining === 0 ? "⚠️ Exact stock" : "✅ {$remaining} remaining after issuance");
+                                        $status = $remaining < 0
+                                            ? "⛔ Over by " . abs($remaining)
+                                            : ($remaining === 0 ? "⚠️ Exact stock" : "✅ {$remaining} remaining after issuance");
                                         return new HtmlString("
-                                        <div style='font-size:12px;'>
-                                             <span style='color:#374151;'>In stock: <strong>{$stock}</strong></span>
+                                            <div style='font-size:12px;'>
+                                                <span style='color:#374151;'>In stock: <strong>{$stock}</strong></span>
                                                 &nbsp;|&nbsp;
-                                            <span style='color:{$color};font-weight:600;'>{$status}</span>
-                                        </div>
-                                            ");
+                                                <span style='color:{$color};font-weight:600;'>{$status}</span>
+                                            </div>
+                                        ");
                                     })
                                     ->columnSpanFull(),
                             ])
@@ -191,7 +207,7 @@ class UniformIssuancesForm
                     ->columnSpan('full')
                     ->live(),
 
-                // ─── GLOBAL SUMMARY (outside the repeater) ───────────────────────────────
+                // ─── GLOBAL SUMMARY ──────────────────────────────────────────────────────
                 Placeholder::make('global_issuance_summary')
                     ->label('Recipient Item Summary')
                     ->content(function (callable $get) {
@@ -201,7 +217,6 @@ class UniformIssuancesForm
                             return new HtmlString('<span style="color:#9ca3af;">No recipients added yet.</span>');
                         }
 
-                        // Aggregate: itemId_variantId => [ itemName, variantName, stock, totalQty ]
                         $aggregated = [];
                         $grandTotal = 0;
 
@@ -211,18 +226,22 @@ class UniformIssuancesForm
                             foreach ($items as $item) {
                                 $variantId = $item['uniform_item_variant_id'] ?? null;
                                 $itemId    = $item['uniform_item_id'] ?? null;
+                                $typeId    = $item['uniform_issuance_type_id'] ?? null;
                                 $qty       = (int) ($item['quantity'] ?? 0);
 
                                 $grandTotal += $qty;
-                                $key = ($itemId ?? 'null') . '_' . ($variantId ?? 'null');
+                                // Key now includes type so same item/variant in different types shows separately
+                                $key = ($itemId ?? 'null') . '_' . ($variantId ?? 'null') . '_' . ($typeId ?? 'null');
 
                                 if (!isset($aggregated[$key])) {
-                                    $itemModel    = $itemId    ? UniformItems::find($itemId)         : null;
+                                    $itemModel    = $itemId    ? UniformItems::find($itemId)           : null;
                                     $variantModel = $variantId ? UniformItemVariants::find($variantId) : null;
+                                    $typeModel    = $typeId    ? \App\Models\UniformIssuanceType::find($typeId) : null;
 
                                     $aggregated[$key] = [
-                                        'item_name'    => $itemModel?->uniform_item_name      ?? '—',
-                                        'variant_name' => $variantModel?->uniform_item_size   ?? '—',
+                                        'item_name'    => $itemModel?->uniform_item_name    ?? '—',
+                                        'variant_name' => $variantModel?->uniform_item_size ?? '—',
+                                        'type_name'    => $typeModel?->uniform_issuance_type_name ?? '—',
                                         'stock'        => (int) ($variantModel?->uniform_item_quantity ?? 0),
                                         'total_qty'    => 0,
                                     ];
@@ -246,6 +265,7 @@ class UniformIssuancesForm
                                 <tr>
                                     <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;'>{$data['item_name']}</td>
                                     <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;text-align:center;'>{$data['variant_name']}</td>
+                                    <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;text-align:center;color:#7c3aed;'>{$data['type_name']}</td>
                                     <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:700;'>{$data['total_qty']}</td>
                                     <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151;'>{$data['stock']}</td>
                                     <td style='padding:4px 8px;font-size:11px;border-bottom:1px solid #e5e7eb;text-align:center;color:{$statusColor};'>{$statusIcon}</td>
@@ -258,6 +278,7 @@ class UniformIssuancesForm
                                     <tr style='background:#1e3a5f;'>
                                         <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:left;'>Item</th>
                                         <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:center;'>Size</th>
+                                        <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:center;'>Type</th>
                                         <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:center;'>Qty</th>
                                         <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:center;'>In Stock</th>
                                         <th style='padding:6px 8px;font-size:10px;color:#fff;text-align:center;'>OK?</th>
@@ -266,7 +287,7 @@ class UniformIssuancesForm
                                 <tbody>{$rows}</tbody>
                                 <tfoot>
                                     <tr style='background:#f8fafc;'>
-                                        <td colspan='2' style='padding:5px 8px;font-size:11px;font-weight:700;color:#374151;'>Total Items</td>
+                                        <td colspan='3' style='padding:5px 8px;font-size:11px;font-weight:700;color:#374151;'>Total Items</td>
                                         <td style='padding:5px 8px;font-size:12px;font-weight:900;color:#1d4ed8;text-align:center;'>{$grandTotal}</td>
                                         <td colspan='2'></td>
                                     </tr>

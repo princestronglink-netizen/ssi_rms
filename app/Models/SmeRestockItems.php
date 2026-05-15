@@ -22,6 +22,11 @@ class SmeRestockItems extends Model
         'remaining_quantity' => 'integer',
     ];
 
+    protected $attributes = [
+        'delivered_quantity' => 0,
+        'remaining_quantity' => 0,
+    ];
+
     public function smeRestock(): BelongsTo
     {
         return $this->belongsTo(SmeRestocks::class, 'sme_restock_id', 'id');
