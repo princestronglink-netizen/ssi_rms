@@ -20,6 +20,12 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Navigation\MenuItem;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
+use App\Filament\Resources\SmeCategories\SmeCategoryResource;
+use App\Filament\Resources\SmeItems\SmeItemsResource;
+use App\Filament\Resources\SmeItemVariants\SmeItemVariantsResource;
+use App\Filament\Resources\SmeRestocks\SmeRestocksResource;
+use App\Filament\Resources\SmePurchaseOrders\SmePurchaseOrdersResource;
+use App\Filament\Resources\ForDeliveryReceipts\ForDeliveryReceiptResource;
 
 class OperationPanelProvider extends PanelProvider
 {
@@ -37,7 +43,12 @@ class OperationPanelProvider extends PanelProvider
                 'primary' => Color::Amber,
             ])
             ->resources([
-                
+                SmeCategoryResource::class,
+                SmeItemsResource::class,
+                SmeItemVariantsResource::class,
+                SmeRestocksResource::class,
+                SmePurchaseOrdersResource::class,
+                ForDeliveryReceiptResource::class,
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),
@@ -65,6 +76,21 @@ class OperationPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+            ])
+            ->viteTheme('resources/css/filament/theme.css')
+            ->navigationGroups([
+                NavigationGroup::make()
+                    ->label('Organizations')
+                    ->collapsed(false), 
+                NavigationGroup::make()
+                    ->label('Item Setup')
+                    ->collapsed(false), 
+                NavigationGroup::make()
+                    ->label('Distributions')
+                    ->collapsed(false),
+                NavigationGroup::make()
+                    ->label('Stock & Inventory')
+                    ->collapsed(false),
             ]);
     }
 }

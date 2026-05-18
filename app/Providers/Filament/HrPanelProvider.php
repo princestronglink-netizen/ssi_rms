@@ -92,7 +92,7 @@ class HrPanelProvider extends PanelProvider
                     ->label('Organizations')
                     ->collapsed(false), 
                 NavigationGroup::make()
-                    ->label('Uniform Setup')
+                    ->label('Item Setup')
                     ->collapsed(false), 
                 NavigationGroup::make()
                     ->label('Distributions')
