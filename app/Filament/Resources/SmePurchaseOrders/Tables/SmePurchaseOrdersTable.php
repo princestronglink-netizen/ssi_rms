@@ -14,6 +14,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Filament\Notifications\Notification;
 
 class SmePurchaseOrdersTable
 {
@@ -272,12 +273,121 @@ class SmePurchaseOrdersTable
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn (SmePurchaseOrder $record): bool => $record->status === 'pending')
+                    // ── Pre-flight: check stock BEFORE showing confirmation ──
+                    ->before(function (SmePurchaseOrder $record, Action $action) {
+                        $record->load('purchaseOrderItems.smeItem', 'purchaseOrderItems.smeItemVariant');
+
+                        // Aggregate total needed per variant
+                        $needed = [];
+                        foreach ($record->purchaseOrderItems as $item) {
+                            $variantId = $item->sme_item_variant_id;
+                            $needed[$variantId] = ($needed[$variantId] ?? 0) + (int) $item->quantity;
+                        }
+
+                        $insufficientItems = [];
+
+                        foreach ($needed as $variantId => $totalNeeded) {
+                            $variant = \App\Models\SmeItemVariants::find($variantId);
+                            $stock   = (int) ($variant?->sme_item_quantity ?? 0);
+
+                            if ($stock < $totalNeeded) {
+                                $insufficientItems[] = [
+                                    'label'   => ($variant?->smeItem?->sme_item_name ?? 'Unknown')
+                                                . ' — ' . ($variant?->sme_item_size ?? '?'),
+                                    'needed'  => $totalNeeded,
+                                    'stock'   => $stock,
+                                    'short'   => $totalNeeded - $stock,
+                                ];
+                            }
+                        }
+
+                        if (!empty($insufficientItems)) {
+                            // Build a detailed error message
+                            $lines = collect($insufficientItems)->map(function ($row) {
+                                return "• {$row['label']}: need {$row['needed']}, have {$row['stock']} (short by {$row['short']})";
+                            })->implode("\n");
+
+                            Notification::make()
+                                ->title('⛔ Insufficient Stock — Cannot Approve')
+                                ->body("The following items do not have enough stock:\n\n{$lines}")
+                                ->danger()
+                                ->persistent()
+                                ->send();
+
+                            $action->cancel(); // stop the action entirely
+                        }
+                    })
                     ->requiresConfirmation()
+                    ->modalHeading('Approve Purchase Order')
+                    ->modalDescription(function (SmePurchaseOrder $record) {
+                        $record->load('purchaseOrderItems.smeItem', 'purchaseOrderItems.smeItemVariant');
+
+                        // Aggregate needed per variant
+                        $needed = [];
+                        foreach ($record->purchaseOrderItems as $item) {
+                            $variantId = $item->sme_item_variant_id;
+                            $needed[$variantId] = ($needed[$variantId] ?? 0) + (int) $item->quantity;
+                        }
+
+                        $rows = '';
+                        $hasWarning = false;
+
+                        foreach ($needed as $variantId => $totalNeeded) {
+                            $variant   = \App\Models\SmeItemVariants::find($variantId);
+                            $stock     = (int) ($variant?->sme_item_quantity ?? 0);
+                            $after     = $stock - $totalNeeded;
+                            $isLow     = $after >= 0 && $after <= 10;
+                            $isOver    = $after < 0;
+
+                            $afterColor = $isOver ? '#dc2626' : ($isLow ? '#d97706' : '#16a34a');
+                            $icon       = $isOver ? '⛔' : ($isLow ? '⚠️' : '✅');
+
+                            if ($isLow || $isOver) $hasWarning = true;
+
+                            $label = e(($variant?->smeItem?->sme_item_name ?? 'Unknown') . ' — ' . ($variant?->sme_item_size ?? '?'));
+
+                            $rows .= "
+                                <tr>
+                                    <td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e5e7eb;'>{$label}</td>
+                                    <td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:700;color:#1d4ed8;'>{$totalNeeded}</td>
+                                    <td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e5e7eb;text-align:center;'>{$stock}</td>
+                                    <td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e5e7eb;text-align:center;color:{$afterColor};font-weight:600;'>{$icon} {$after}</td>
+                                </tr>";
+                        }
+
+                        $warningBanner = $hasWarning
+                            ? "<div style='background:#fef9c3;border:1px solid #fde68a;border-radius:8px;
+                                padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:10px;'>
+                                ⚠️ Some items will have low or zero stock after approval. Please review before confirming.
+                               </div>"
+                            : '';
+
+                        return new \Illuminate\Support\HtmlString("
+                            <div style='font-family:system-ui,sans-serif;'>
+                                {$warningBanner}
+                                <div style='font-size:13px;color:#374151;margin-bottom:10px;'>
+                                    Approving this PO will deduct the following quantities from inventory:
+                                </div>
+                                <table style='width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-family:system-ui,sans-serif;'>
+                                    <thead>
+                                        <tr style='background:#1e3a5f;'>
+                                            <th style='padding:7px 10px;font-size:10px;color:#fff;text-align:left;'>Item / Size</th>
+                                            <th style='padding:7px 10px;font-size:10px;color:#93c5fd;text-align:center;'>Ordered</th>
+                                            <th style='padding:7px 10px;font-size:10px;color:#fff;text-align:center;'>In Stock</th>
+                                            <th style='padding:7px 10px;font-size:10px;color:#fcd34d;text-align:center;'>After</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>{$rows}</tbody>
+                                </table>
+                            </div>
+                        ");
+                    })
+                    ->modalSubmitActionLabel('Yes, Approve')
                     ->action(function (SmePurchaseOrder $record): void {
                         DB::transaction(function () use ($record): void {
                             $record->load('purchaseOrderItems.smeItem', 'purchaseOrderItems.smeItemVariant');
 
-                            // ── PASS 1: validate all stock first ──────────────────────────
+                            // ── PASS 1: validate all stock first ─────────────────────────
                             $plannedDeductions = [];
                             foreach ($record->purchaseOrderItems as $item) {
                                 $variantId = $item->sme_item_variant_id;
@@ -301,13 +411,13 @@ class SmePurchaseOrdersTable
                                 $stockBeforeMap[$variantId] = $variant ? (int) $variant->sme_item_quantity : 0;
                             }
 
-                            // ── PASS 3: decrement each variant once ───────────────────────
+                            // ── PASS 3: decrement each variant once ──────────────────────
                             foreach ($plannedDeductions as $variantId => $totalPlanned) {
                                 \App\Models\SmeItemVariants::where('id', $variantId)
                                     ->decrement('sme_item_quantity', $totalPlanned);
                             }
 
-                            // ── PASS 4: build note rows with per-item stock windows ────────
+                            // ── PASS 4: build note rows with per-item stock windows ───────
                             $noteItems      = [];
                             $variantRunning = [];
 
@@ -332,7 +442,6 @@ class SmePurchaseOrdersTable
                                 ];
                             }
 
-                            // Sort: lowest stock_after first
                             usort($noteItems, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
 
                             $record->update([
@@ -349,7 +458,15 @@ class SmePurchaseOrdersTable
                                 'note'                  => $noteItems,
                             ]);
                         });
-                    }),
+                    })
+                    ->failureNotificationTitle('Approval Failed')
+                    ->failureNotification(
+                        Notification::make()
+                            ->danger()
+                            ->title('⛔ Approval Failed')
+                            ->body('Stock deduction failed. One or more items have insufficient stock. Please check inventory and try again.')
+                            ->persistent()
+                    ),
 
                 // ─── REJECT ───────────────────────────────────────────────
                 Action::make('reject')
@@ -358,6 +475,9 @@ class SmePurchaseOrdersTable
                     ->color('danger')
                     ->visible(fn (SmePurchaseOrder $record): bool => $record->status === 'pending')
                     ->requiresConfirmation()
+                    ->modalHeading('Reject Purchase Order')
+                    ->modalDescription('Are you sure you want to reject this purchase order? This action cannot be undone.')
+                    ->modalSubmitActionLabel('Yes, Reject')
                     ->action(function (SmePurchaseOrder $record): void {
                         $record->update(['status' => 'rejected']);
 
@@ -501,7 +621,6 @@ class SmePurchaseOrdersTable
 
                         $record->loadMissing('purchaseOrderItems.smeItem', 'purchaseOrderItems.smeItemVariant', 'site');
 
-                        // ── Build billing items ──
                         $billingItems = [];
                         foreach ($record->purchaseOrderItems as $item) {
                             $qty = (int) $item->quantity;
@@ -526,7 +645,6 @@ class SmePurchaseOrdersTable
                             ?? $record->site?->site_name
                             ?? '';
 
-                        // ── Items table rows ──
                         $tableRows = '';
                         foreach ($billingItems as $i => $item) {
                             $sub = (float) $item['unit_price'] * (int) $item['quantity'];
@@ -553,14 +671,12 @@ class SmePurchaseOrdersTable
 
                         $fields = [];
 
-                        // ── Billed To ──
                         $fields[] = \Filament\Forms\Components\TextInput::make('billed_to')
                             ->label('Billed To (Client)')
                             ->default($defaultBilledTo)
                             ->required()
                             ->columnSpanFull();
 
-                        // ── Info note ──
                         $fields[] = \Filament\Forms\Components\Placeholder::make('billing_note')
                             ->label('')
                             ->content(new \Illuminate\Support\HtmlString("
@@ -576,19 +692,15 @@ class SmePurchaseOrdersTable
                             "))
                             ->columnSpanFull();
 
-                        // ── Hidden fields ──
                         $fields[] = \Filament\Forms\Components\Hidden::make('billing_items')->default($billingItemsJson);
                         $fields[] = \Filament\Forms\Components\Hidden::make('status')->default('pending');
 
-                        // ── Items preview card ──
                         $fields[] = \Filament\Forms\Components\Placeholder::make('items_preview')
                             ->label('')
                             ->content(new \Illuminate\Support\HtmlString("
                                 <div style='font-family:\"DM Sans\",system-ui,sans-serif;
                                     border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;
                                     box-shadow:0 1px 4px rgba(0,0,0,.05);'>
-
-                                    <!-- Card header -->
                                     <div style='display:flex;align-items:center;justify-content:space-between;
                                         padding:12px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;'>
                                         <span style='font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;'>
@@ -599,8 +711,6 @@ class SmePurchaseOrdersTable
                                             &nbsp;<span style='font-size:11px;font-weight:500;color:#6b7280;'>total</span>
                                         </span>
                                     </div>
-
-                                    <!-- Items table -->
                                     <div style='overflow-x:auto;'>
                                         <table style='width:100%;border-collapse:collapse;min-width:400px;'>
                                             <thead>
@@ -623,8 +733,6 @@ class SmePurchaseOrdersTable
                                             </tfoot>
                                         </table>
                                     </div>
-
-                                    <!-- DR upload label section -->
                                     <div style='padding:12px 16px 4px;border-top:1px solid #ede9fe;background:#faf5ff;'>
                                         <div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'>
                                             <span style='width:7px;height:7px;border-radius:50%;background:#7c3aed;flex-shrink:0;display:inline-block;'></span>
@@ -641,7 +749,6 @@ class SmePurchaseOrdersTable
                             "))
                             ->columnSpanFull();
 
-                        // ── DR upload fields — flush below the card ──
                         $fields[] = \Filament\Forms\Components\TextInput::make('dr_number')
                             ->label('DR Number')
                             ->placeholder('e.g. DR-2024-001')
@@ -693,7 +800,7 @@ class SmePurchaseOrdersTable
                         $billingItems = json_decode($data['billing_items'] ?? '[]', true);
 
                         if (!is_array($billingItems) || empty($billingItems)) {
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('No billing items')
                                 ->body('Could not read billing items. Please try again.')
                                 ->warning()
@@ -733,7 +840,7 @@ class SmePurchaseOrdersTable
                             'uploaded_by'     => \Illuminate\Support\Facades\Auth::id(),
                         ]);
 
-                        \Filament\Notifications\Notification::make()
+                        Notification::make()
                             ->title('Billing Created')
                             ->body('Client billing of ₱' . number_format($total, 2) . ' saved successfully.')
                             ->success()
@@ -776,7 +883,6 @@ class SmePurchaseOrdersTable
                                 default     => '#6b7280',
                             };
 
-                            // ── Items / stock detail ──
                             $itemsHtml = '';
                             $noteData  = is_array($log->note) ? $log->note : [];
 

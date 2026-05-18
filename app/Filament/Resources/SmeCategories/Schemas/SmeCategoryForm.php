@@ -12,7 +12,9 @@ class SmeCategoryForm
         return $schema
             ->components([
                 TextInput::make('sme_category_name')
-                    ->required(),
+                    ->label('Category Name')
+                    ->required()
+                    ->columnSpanFull(),
             ]);
     }
 }

@@ -23,6 +23,11 @@ class SmePurchaseOrderItems extends Model
         'remaining_quantity' => 'integer',
     ];
 
+    protected $attributes = [
+        'released_quantity' => 0,
+        'remaining_quantity' => 0,
+    ];
+
     public function smeItem() : BelongsTo {
         return $this->belongsTo(SmeItems::class, 'sme_item_id', 'id');
     }

@@ -16,11 +16,14 @@ class SmeItemsForm
     public static function configure(Schema $schema): Schema
     {
         return $schema
+            ->columns(3)
             ->components([
                 Select::make('sme_category_id')
+                    ->label('Category')
                     ->relationship('category', 'sme_category_name')
                     ->required(),
                 TextInput::make('sme_item_name')
+                    ->label('Item Name')
                     ->unique(
                         table: 'sme_items',
                         column: 'sme_item_name',
@@ -28,22 +31,27 @@ class SmeItemsForm
                     )
                     ->required(),
                 TextInput::make('sme_item_brand')
+                    ->label('Brand')
                     ->required(),
-                Textarea::make('sme_item_description')
-                    ->columnSpanFull(),
                 TextInput::make('sme_item_price')
+                    ->label('Price')
                     ->required()
-                    ->numeric(),
+                    ->numeric()
+                    ->nullable()
+                    ->hidden(),
+                Textarea::make('sme_item_description')
+                    ->label('Description')
+                    ->columnSpanFull(),
                 FileUpload::make('sme_item_image')
                     ->image()
                     ->directory('sme-items')
-                    ->nullable(),
+                    ->nullable()
+                    ->columnSpanFull(),
                 Repeater::make('sme_item_variants')
                     ->relationship('itemVariant')
                     ->schema([
-                        // Remove Hidden::make('id') entirely
-
                         TextInput::make('sme_item_size')
+                            ->label('Size')
                             ->rules([
                                 fn($get, $record) => new UniqueVariantSize(
                                     itemName: $get('../../sme_item_name'),
@@ -52,17 +60,18 @@ class SmeItemsForm
                                         ->filter()
                                         ->values()
                                         ->toArray(),
-                                    currentVariantId: $record?->id, // use $record instead of $get('id')
+                                    currentVariantId: $record?->id,
                                 )
                             ])
                             ->required(),
 
                         TextInput::make('sme_item_quantity')
+                            ->label('Quantity')
                             ->numeric()
                             ->default(0),
                     ])
                     ->columns(2)
-                    ->columnSpan('full')
+                    ->columnSpanFull()
                     ->collapsible()
             ]);
     }

@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\SmePurchaseOrders;
 
-use App\Filament\Resources\SmePurchaseOrders\Pages\CreateSmePurchaseOrder;
-use App\Filament\Resources\SmePurchaseOrders\Pages\EditSmePurchaseOrder;
 use App\Filament\Resources\SmePurchaseOrders\Pages\ListSmePurchaseOrders;
 use App\Filament\Resources\SmePurchaseOrders\Schemas\SmePurchaseOrderForm;
 use App\Filament\Resources\SmePurchaseOrders\Tables\SmePurchaseOrdersTable;
@@ -11,7 +9,6 @@ use App\Models\SmePurchaseOrder;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
 class SmePurchaseOrderResource extends Resource
@@ -29,10 +26,10 @@ class SmePurchaseOrderResource extends Resource
 
     public static function getNavigationBadgeColor(): ?string
     {
-        return 'danger'; // red
+        return 'danger';
     }
-    
-    public static function getNavigationGroup(): ?string    
+
+    public static function getNavigationGroup(): ?string
     {
         return 'Distributions';
     }
@@ -49,14 +46,13 @@ class SmePurchaseOrderResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            //
-        ];
+        return [];
     }
 
     public static function getPages(): array
     {
         return [
+            // Only the list page — create & edit are handled via modals
             'index' => ListSmePurchaseOrders::route('/'),
         ];
     }
