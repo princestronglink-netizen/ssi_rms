@@ -28,6 +28,7 @@ use App\Filament\Resources\SmePurchaseOrders\SmePurchaseOrdersResource;
 use App\Filament\Resources\ForDeliveryReceipts\ForDeliveryReceiptResource;
 use Filament\Navigation\NavigationGroup;
 
+
 class OperationPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
