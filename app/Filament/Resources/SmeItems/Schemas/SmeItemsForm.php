@@ -21,7 +21,18 @@ class SmeItemsForm
                 Select::make('sme_category_id')
                     ->label('Category')
                     ->relationship('category', 'sme_category_name')
-                    ->required(),
+                    ->required()
+                    ->searchable()
+                    ->preload()
+                    ->createOptionForm([
+                        TextInput::make('sme_category_name')
+                            ->label('Category Name')
+                            ->required()
+                            ->maxLength(255),
+                    ])
+                    ->createOptionUsing(function (array $data): int {
+                        return \App\Models\SmeCategory::create($data)->id;
+                    }),
                 TextInput::make('sme_item_name')
                     ->label('Item Name')
                     ->unique(
