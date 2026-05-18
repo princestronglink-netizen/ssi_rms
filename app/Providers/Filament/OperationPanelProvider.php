@@ -49,7 +49,7 @@ class OperationPanelProvider extends PanelProvider
                 SmeItemsResource::class,
                 SmeItemVariantsResource::class,
                 SmeRestocksResource::class,
-                SmePurchaseOrdersResource::class,
+                SmePurchaseOrderResource::class,
                 ForDeliveryReceiptResource::class,
             ])
             ->plugins([
