@@ -82,6 +82,9 @@ class OperationPanelProvider extends PanelProvider
             ->viteTheme('resources/css/filament/theme.css')
             ->navigationGroups([
                 NavigationGroup::make()
+                    ->label('Delivery Receipt')
+                    ->collapsed(false), 
+                NavigationGroup::make()
                     ->label('Organizations')
                     ->collapsed(false), 
                 NavigationGroup::make()
