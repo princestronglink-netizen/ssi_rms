@@ -24,7 +24,7 @@ use App\Filament\Resources\SmeCategories\SmeCategoryResource;
 use App\Filament\Resources\SmeItems\SmeItemsResource;
 use App\Filament\Resources\SmeItemVariants\SmeItemVariantsResource;
 use App\Filament\Resources\SmeRestocks\SmeRestocksResource;
-use App\Filament\Resources\SmePurchaseOrders\SmePurchaseOrdersResource;
+use App\Filament\Resources\SmePurchaseOrders\SmePurchaseOrderResource;
 use App\Filament\Resources\ForDeliveryReceipts\ForDeliveryReceiptResource;
 use Filament\Navigation\NavigationGroup;
 
