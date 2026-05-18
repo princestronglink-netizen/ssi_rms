@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Auth;
 
 Route::get('/', function () {
     if (Auth::check()) {
-        return app(\App\Http\Controllers\Auth\LoginCOntroller::class)
+        return app(\App\Http\Controllers\Auth\LoginController::class)
             ->redirectByRole(Auth::user());
     }
     return redirect('/login');
