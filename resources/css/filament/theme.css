@@ -172,8 +172,6 @@ body {
     box-shadow: var(--cl-shadow-sm);
 }
 
-/* Cards already use --cl-base, so dark vars cover this automatically */
-
 /* =============================================================
    ✦ TABLES
 ============================================================= */
@@ -262,6 +260,58 @@ body {
 .dark .fi-ta-table tbody tr[class*="selected"],
 .dark .fi-ta-table tbody tr.fi-selected {
     background: rgba(22,109,245,0.18);
+}
+
+/* =============================================================
+   ✦ CHECKBOXES — Dark mode fix (high-specificity override)
+   NOTE: Do NOT use appearance:none here — Filament's Tailwind
+   classes already set it. We only need to fix colors/visibility.
+============================================================= */
+
+/* ── Base: unchecked ── */
+.dark input[type="checkbox"] {
+    color-scheme: dark;
+    border-color: rgba(22, 109, 245, 0.45) !important;
+    background-color: #0d1525 !important;
+}
+
+/* ── Checked: solid blue fill + white checkmark ── */
+.dark input[type="checkbox"]:checked {
+    background-color: rgb(22, 109, 245) !important;
+    border-color: rgb(22, 109, 245) !important;
+    background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e") !important;
+    background-size: 100% 100% !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+/* ── Indeterminate: blue + dash (select-all header checkbox) ── */
+.dark input[type="checkbox"]:indeterminate {
+    background-color: rgb(22, 109, 245) !important;
+    border-color: rgb(22, 109, 245) !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath stroke='white' stroke-width='2.5' stroke-linecap='round' d='M4 8h8'/%3e%3c/svg%3e") !important;
+    background-size: 100% 100% !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+/* ── Focus ring ── */
+.dark input[type="checkbox"]:focus {
+    outline: none !important;
+    border-color: rgb(22, 109, 245) !important;
+    box-shadow: 0 0 0 3px rgba(22, 109, 245, 0.30) !important;
+}
+
+/* ── Hover unchecked ── */
+.dark input[type="checkbox"]:not(:checked):not(:indeterminate):hover {
+    border-color: rgba(22, 109, 245, 0.75) !important;
+    background-color: rgba(22, 109, 245, 0.10) !important;
+}
+
+/* ── Disabled ── */
+.dark input[type="checkbox"]:disabled {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
 }
 
 /* =============================================================
@@ -419,4 +469,61 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(22,109,245,0.5);
+}
+
+/* =============================================================
+   ✦ CHECKBOXES — Nuclear override (must stay at bottom)
+   Filament v3 Tailwind JIT generates classes like:
+   checked:bg-primary-600  checked:border-primary-600
+   These compile to high-specificity rules. We beat them by
+   chaining .dark with a double attribute selector which raises
+   our specificity above Tailwind's [type="checkbox"] utilities.
+============================================================= */
+
+.dark [type="checkbox"][type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: #111e35;
+    border: 1.5px solid rgba(22, 109, 245, 0.50);
+    border-radius: 4px;
+    width: 1rem;
+    height: 1rem;
+    display: inline-grid;
+    place-content: center;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+
+.dark [type="checkbox"][type="checkbox"]:checked {
+    background-color: #166df5;
+    border-color: #166df5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='white' d='M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0z'/%3E%3C/svg%3E");
+    background-size: 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.dark [type="checkbox"][type="checkbox"]:indeterminate {
+    background-color: #166df5;
+    border-color: #166df5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='7' width='10' height='2' rx='1' fill='white'/%3E%3C/svg%3E");
+    background-size: 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.dark [type="checkbox"][type="checkbox"]:focus {
+    outline: none;
+    border-color: #166df5;
+    box-shadow: 0 0 0 3px rgba(22, 109, 245, 0.30);
+}
+
+.dark [type="checkbox"][type="checkbox"]:not(:checked):not(:indeterminate):hover {
+    border-color: rgba(22, 109, 245, 0.80);
+    background-color: rgba(22, 109, 245, 0.12);
+}
+
+.dark [type="checkbox"][type="checkbox"]:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
 }
