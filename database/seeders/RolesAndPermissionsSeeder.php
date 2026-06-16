@@ -15,57 +15,27 @@ class RolesAndPermissionsSeeder extends Seeder
 
         // HR Permissions
         $hrPermissions = [
-            'view_uniform_inventory',
-            'manage_uniform_inventory',
-            'view_supply_inventory',
-            'manage_supply_inventory',
-            'view_hr_requests',
-            'approve_hr_requests',
-            'create_hr_issuance',
-            'view_hr_issuance',
-            'create_hr_transmittal',
+            
         ];
 
         // Operations Permissions (full access)
         $operationsPermissions = [
-            'view_sme_inventory',
-            'manage_sme_inventory',
-            'view_operations_requests',
-            'approve_operations_requests',
-            'create_operations_issuance',
-            'view_operations_issuance',
-            'create_operations_transmittal',
-            'create_delivery_receipt',
+            
         ];
 
         // Payroll Permissions
         $payrollPermissions = [
-            'view_billing',
-            'create_billing_record',
-            'approve_billing_record',
-            'generate_invoice',
-            'record_payment',
-            'generate_or',
-            'view_soa',
-            'view_collections',
+            
         ];
 
         // Finance Permissions
         $financePermissions = [
-            'view_financial_reports',
-            'approve_expenses',
-            'manage_budget',
-            'record_transactions',
-            'generate_financial_statement',
+           
         ];
 
         // Purchasing Permissions
         $purchasingPermissions = [
-            'view_purchase_orders',
-            'create_purchase_orders',
-            'approve_purchase_orders',
-            'manage_suppliers',
-            'track_inventory_orders',
+            
         ];
 
         // Create all permissions

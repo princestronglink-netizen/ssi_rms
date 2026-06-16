@@ -60,18 +60,18 @@ class UniformItemsTable
                     RestoreBulkAction::make(),
                 ]),
 
-                ImportAction::make()
-                    ->label('Import CSV / Excel')
-                    ->icon('heroicon-o-arrow-up-tray')
-                    ->importer(UniformItemsImporter::class)
-                    ->chunkSize(100),
+                // ImportAction::make()
+                //     ->label('Import CSV / Excel')
+                //     ->icon('heroicon-o-arrow-up-tray')
+                //     ->importer(UniformItemsImporter::class)
+                //     ->chunkSize(100),
 
-                Action::make('downloadTemplate')
-                    ->label('Download Template')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->color('success')
-                    ->url(route('uniform-items.template'))
-                    ->openUrlInNewTab(),
+                // Action::make('downloadTemplate')
+                //     ->label('Download Template')
+                //     ->icon('heroicon-o-arrow-down-tray')
+                //     ->color('success')
+                //     ->url(route('uniform-items.template'))
+                //     ->openUrlInNewTab(),
             ]);
     }
 }

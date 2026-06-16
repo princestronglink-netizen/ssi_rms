@@ -17,6 +17,11 @@ class ListUniformItems extends ListRecords
                 ->extraAttributes([
                     'style' => 'color: #ffffff;' // dark text
                 ]),
+                // \Filament\Actions\ImportAction::make()
+                //     ->importer(\App\Filament\Imports\UniformItemsImporter::class)
+                //     ->job(\App\Jobs\ImportUniformItemsJob::class)
+                //     ->label('Import Items')
+                //     ->icon('heroicon-o-arrow-up-tray'),
         ];
     }
 }
