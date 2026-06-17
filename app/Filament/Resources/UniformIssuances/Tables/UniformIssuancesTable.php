@@ -213,6 +213,7 @@ class UniformIssuancesTable
                                                 <tr style='background:#f1f5f9;'>
                                                     <th style='padding:7px 14px;text-align:left;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;'>Item</th>
                                                     <th style='padding:7px 14px;text-align:center;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;width:60px;'>Size</th>
+                                                    <th style='padding:7px 14px;text-align:center;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;'>Type</th>
                                                     <th style='padding:7px 14px;text-align:center;font-size:10px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;width:60px;'>Qty</th>
                                                     <th style='padding:7px 14px;text-align:center;font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;width:75px;'>Released</th>
                                                     <th style='padding:7px 14px;text-align:center;font-size:10px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e2e8f0;width:80px;'>Remaining</th>
