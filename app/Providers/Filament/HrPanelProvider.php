@@ -31,6 +31,7 @@ use App\Filament\Resources\UniformRestocks\UniformRestocksResource;
 use App\Filament\Resources\UniformSets\UniformSetsResource;
 use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
+use App\Filament\Pages\UniformStockFlow;
 
 class HrPanelProvider extends PanelProvider
 {
@@ -66,6 +67,7 @@ class HrPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Hr/Pages'), for: 'App\Filament\Hr\Pages')
             ->pages([
                 Dashboard::class,
+                UniformStockFlow::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Hr/Widgets'), for: 'App\Filament\Hr\Widgets')
             ->widgets([
