@@ -100,6 +100,9 @@ class HrPanelProvider extends PanelProvider
                 NavigationGroup::make()
                     ->label('Stock & Inventory')
                     ->collapsed(false),
+                NavigationGroup::make()
+                    ->label('Reports')
+                    ->collapsed(false),
             ]);
     }
 }
