@@ -29,6 +29,7 @@ use App\Filament\Resources\UniformItems\UniformItemsResource;
 use App\Filament\Resources\UniformItemVariants\UniformItemVariantsResource;
 use App\Filament\Resources\UniformRestocks\UniformRestocksResource;
 use App\Filament\Resources\UniformSets\UniformSetsResource;
+use App\Filament\Resources\UniformSets\ReturnUniformItemsResource;
 use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use App\Filament\Pages\UniformStockFlow;
@@ -59,6 +60,7 @@ class HrPanelProvider extends PanelProvider
                 UniformItemVariantsResource::class,
                 UniformRestocksResource::class,
                 UniformSetsResource::class,
+                ReturnUniformItemsResource::class,
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),
