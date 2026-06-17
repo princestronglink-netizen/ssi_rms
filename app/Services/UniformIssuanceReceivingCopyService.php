@@ -335,12 +335,14 @@ class UniformIssuanceReceivingCopyService
             e($i['name']) . ' (' . e($i['size']) . ')'
         )->implode(', ');
 
+        // <div class='atd-logo'>
+        //     <img src='{$logo}' alt='{$cn}' style='width:100%;height:100%;object-fit:contain;display:block;'>
+        // </div>
+
         return "
             <div class='slip atd-slip'>
                 <div class='atd-head'>
-                    // <div class='atd-logo'>
-                    //     <img src='{$logo}' alt='{$cn}' style='width:100%;height:100%;object-fit:contain;display:block;'>
-                    // </div>
+                    
                     <div style='text-align:center;flex:1;'>
                         <div style='font-size:13px;font-weight:900;color:#1e3a5f;letter-spacing:.05em;text-transform:uppercase;'>{$cn}</div>
                         <div style='font-size:8px;color:#64748b;margin-top:1px;'>{$addr}</div>
