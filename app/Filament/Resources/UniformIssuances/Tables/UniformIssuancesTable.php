@@ -1470,6 +1470,268 @@ class UniformIssuancesTable
                                 ->send();
                         }),
 
+                        // ─── ADD ITEMS: only when issued ──────────────────────────────────
+                        Action::make('add_items')
+                            ->label('Add Items')
+                            ->color('info')
+                            ->icon('heroicon-o-plus-circle')
+                            ->modalWidth('3xl')
+                            ->visible(fn ($record) => $record->uniform_issuance_status === 'issued')
+                            ->form(function ($record) {
+                                $record->loadMissing(
+                                    'uniformIssuanceRecipient.position',
+                                );
+
+                                $fields = [];
+
+                                foreach ($record->uniformIssuanceRecipient as $ri => $recipient) {
+                                    $employeeName = $recipient->employee_name ?? '—';
+                                    $position     = $recipient->position?->position_name ?? '—';
+
+                                    // Section header per employee
+                                    $fields[] = \Filament\Forms\Components\Placeholder::make("add_header_{$recipient->id}")
+                                        ->label('')
+                                        ->content(new \Illuminate\Support\HtmlString("
+                                            <div style='background:#1e3a5f;border-radius:8px;padding:10px 14px;margin-top:8px;'>
+                                                <div style='font-size:13px;font-weight:700;color:#fff;'>{$employeeName}</div>
+                                                <div style='font-size:11px;color:#93c5fd;margin-top:2px;'>{$position}</div>
+                                            </div>
+                                        "))
+                                        ->columnSpanFull();
+
+                                    // Repeater of new items for this recipient
+                                    $fields[] = \Filament\Forms\Components\Repeater::make("new_items_{$recipient->id}")
+                                        ->label("Items for {$employeeName}")
+                                        ->addActionLabel('+ Add Item')
+                                        ->minItems(0)
+                                        ->defaultItems(1)
+                                        ->columnSpanFull()
+                                        ->schema([
+                                            \Filament\Forms\Components\Select::make('uniform_issuance_type_id')
+                                                ->label('Issuance Type')
+                                                ->relationship('uniformIssuanceType', 'uniform_issuance_type_name')
+                                                ->options(\App\Models\UniformIssuanceType::pluck('uniform_issuance_type_name', 'id'))
+                                                ->required()
+                                                ->searchable(),
+
+                                            \Filament\Forms\Components\Select::make('uniform_item_id')
+                                                ->label('Item')
+                                                ->options(\App\Models\UniformItems::pluck('uniform_item_name', 'id'))
+                                                ->required()
+                                                ->searchable()
+                                                ->reactive()
+                                                ->afterStateUpdated(fn (callable $set) => $set('uniform_item_variant_id', null)),
+
+                                            \Filament\Forms\Components\Select::make('uniform_item_variant_id')
+                                                ->label('Size / Variant')
+                                                ->options(function (callable $get) {
+                                                    $itemId = $get('uniform_item_id');
+                                                    if (!$itemId) return [];
+                                                    return \App\Models\UniformItemVariants::where('uniform_item_id', $itemId)
+                                                        ->get()
+                                                        ->mapWithKeys(fn ($v) => [
+                                                            $v->id => $v->uniform_item_size . ' (stock: ' . $v->uniform_item_quantity . ')',
+                                                        ]);
+                                                })
+                                                ->required()
+                                                ->searchable()
+                                                ->reactive()
+                                                ->hint(function (callable $get) {
+                                                    $variantId = $get('uniform_item_variant_id');
+                                                    if (!$variantId) return null;
+                                                    $variant = \App\Models\UniformItemVariants::find($variantId);
+                                                    if (!$variant) return null;
+                                                    $stock = (int) $variant->uniform_item_quantity;
+                                                    return "Available: {$stock}";
+                                                })
+                                                ->hintColor(function (callable $get) {
+                                                    $variantId = $get('uniform_item_variant_id');
+                                                    if (!$variantId) return null;
+                                                    $variant = \App\Models\UniformItemVariants::find($variantId);
+                                                    return $variant && (int) $variant->uniform_item_quantity > 0 ? 'success' : 'danger';
+                                                }),
+
+                                            \Filament\Forms\Components\TextInput::make('quantity')
+                                                ->label('Quantity')
+                                                ->numeric()
+                                                ->required()
+                                                ->minValue(1)
+                                                ->live(),
+                                        ])
+                                        ->columns(2);
+
+                                    // Divider between employees
+                                    if ($ri < $record->uniformIssuanceRecipient->count() - 1) {
+                                        $fields[] = \Filament\Forms\Components\Placeholder::make("divider_{$recipient->id}")
+                                            ->label('')
+                                            ->content(new \Illuminate\Support\HtmlString(
+                                                "<div style='border-top:1px dashed #e2e8f0;margin:12px 0;'></div>"
+                                            ))
+                                            ->columnSpanFull();
+                                    }
+                                }
+
+                                return $fields;
+                            })
+                            ->action(function ($record, array $data, \Filament\Actions\Action $action) {
+                                $record->loadMissing(
+                                    'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+                                    'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+                                    'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
+                                );
+
+                                // ── PASS 1: collect all new items across all recipients ──────────
+                                $allNewItems = []; // [{ recipient, variantId, qty, typeId, itemId }]
+
+                                foreach ($record->uniformIssuanceRecipient as $recipient) {
+                                    $repeaterKey = "new_items_{$recipient->id}";
+                                    $rows        = $data[$repeaterKey] ?? [];
+
+                                    foreach ($rows as $row) {
+                                        $variantId = $row['uniform_item_variant_id'] ?? null;
+                                        $qty       = (int) ($row['quantity'] ?? 0);
+
+                                        if (!$variantId || $qty <= 0) continue;
+
+                                        $allNewItems[] = [
+                                            'recipient' => $recipient,
+                                            'variantId' => $variantId,
+                                            'qty'       => $qty,
+                                            'itemId'    => $row['uniform_item_id']        ?? null,
+                                            'typeId'    => $row['uniform_issuance_type_id'] ?? null,
+                                        ];
+                                    }
+                                }
+
+                                if (empty($allNewItems)) {
+                                    \Filament\Notifications\Notification::make()
+                                        ->title('No Items Added')
+                                        ->body('Please add at least one item.')
+                                        ->warning()
+                                        ->send();
+                                    $action->halt();
+                                    return;
+                                }
+
+                                // ── PASS 2: aggregate planned deductions per variant ─────────────
+                                $plannedDeductions = [];
+                                foreach ($allNewItems as $entry) {
+                                    $plannedDeductions[$entry['variantId']] =
+                                        ($plannedDeductions[$entry['variantId']] ?? 0) + $entry['qty'];
+                                }
+
+                                // ── PASS 3: validate stock for each variant ──────────────────────
+                                foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                                    $variant = \App\Models\UniformItemVariants::find($variantId);
+
+                                    if (!$variant) {
+                                        \Filament\Notifications\Notification::make()
+                                            ->title('Variant Not Found')
+                                            ->danger()
+                                            ->send();
+                                        $action->halt();
+                                        return;
+                                    }
+
+                                    $currentStock = (int) $variant->uniform_item_quantity;
+
+                                    if ($totalPlanned > $currentStock) {
+                                        $itemNames = collect($allNewItems)
+                                            ->filter(fn ($e) => $e['variantId'] == $variantId)
+                                            ->map(fn ($e) => ($e['recipient']->employee_name ?? '—') . ': ' . $e['qty'])
+                                            ->implode(', ');
+
+                                        \Filament\Notifications\Notification::make()
+                                            ->title('Insufficient Stock')
+                                            ->body(
+                                                "Need {$totalPlanned} of variant ID {$variantId} "
+                                                . "({$itemNames}) but only {$currentStock} in stock."
+                                            )
+                                            ->danger()
+                                            ->send();
+                                        $action->halt();
+                                        return;
+                                    }
+                                }
+
+                                // ── PASS 4: capture stock_before per variant ─────────────────────
+                                $stockBeforeMap = [];
+                                foreach ($plannedDeductions as $variantId => $_) {
+                                    $v = \App\Models\UniformItemVariants::find($variantId);
+                                    $stockBeforeMap[$variantId] = $v ? (int) $v->uniform_item_quantity : 0;
+                                }
+
+                                // ── PASS 5: decrement stock (one shot per variant) ───────────────
+                                foreach ($plannedDeductions as $variantId => $totalPlanned) {
+                                    \App\Models\UniformItemVariants::where('id', $variantId)
+                                        ->decrement('uniform_item_quantity', $totalPlanned);
+                                }
+
+                                // ── PASS 6: create new item rows + build log note ────────────────
+                                $noteRows       = [];
+                                $variantRunning = [];
+
+                                foreach ($allNewItems as $entry) {
+                                    $recipient = $entry['recipient'];
+                                    $variantId = $entry['variantId'];
+                                    $qty       = $entry['qty'];
+
+                                    // Create the new UniformIssuanceItem row (fully issued immediately)
+                                    \App\Models\UniformIssuanceItems::create([
+                                        'uniform_issuance_recipient_id' => $recipient->id,
+                                        'uniform_item_id'               => $entry['itemId'],
+                                        'uniform_item_variant_id'       => $variantId,
+                                        'uniform_issuance_type_id'      => $entry['typeId'],
+                                        'quantity'                      => $qty,
+                                        'released_quantity'             => $qty,
+                                        'remaining_quantity'            => 0,
+                                    ]);
+
+                                    // Per-row stock tracking for note
+                                    $alreadyConsumed = $variantRunning[$variantId] ?? 0;
+                                    $stockBefore     = $stockBeforeMap[$variantId] - $alreadyConsumed;
+                                    $stockAfter      = $stockBefore - $qty;
+                                    $variantRunning[$variantId] = $alreadyConsumed + $qty;
+
+                                    $itemModel    = \App\Models\UniformItems::find($entry['itemId']);
+                                    $variantModel = \App\Models\UniformItemVariants::find($variantId);
+                                    $typeModel    = $entry['typeId']
+                                        ? \App\Models\UniformIssuanceType::find($entry['typeId'])
+                                        : null;
+
+                                    $noteRows[] = [
+                                        'label'        => ($itemModel?->uniform_item_name   ?? '—')
+                                                        . ' (' . ($variantModel?->uniform_item_size ?? '—') . ')'
+                                                        . ' [' . ($typeModel?->uniform_issuance_type_name ?? '—') . ']'
+                                                        . ' — ' . ($recipient->employee_name ?? '—'),
+                                        'released'     => $qty,
+                                        'stock_before' => $stockBefore,
+                                        'stock_after'  => $stockAfter,
+                                    ];
+                                }
+
+                                // Sort: lowest stock_after first
+                                usort($noteRows, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
+
+                                // ── PASS 7: log the addition ─────────────────────────────────────
+                                \App\Models\UniformIssuanceLog::create([
+                                    'uniform_issuance_id' => $record->id,
+                                    'user_id'             => \Illuminate\Support\Facades\Auth::id(),
+                                    'action'              => 'issued',
+                                    'status_from'         => 'issued',
+                                    'status_to'           => 'issued',
+                                    'note'                => json_encode($noteRows),
+                                ]);
+
+                                $totalAdded = collect($noteRows)->sum('released');
+
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Items Added')
+                                    ->body("{$totalAdded} item(s) added and issued successfully.")
+                                    ->success()
+                                    ->send();
+                            }),
+
 
                     
                         Action::make('for_delivery_receipt')
