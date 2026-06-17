@@ -1146,8 +1146,8 @@ class UniformIssuancesTable
                                         $label = e("{$item->uniformItem->uniform_item_name} ({$item->uniformItemVariant->uniform_item_size}) — {$recipient->employee_name}");
                                         $rows .= "
                                             <tr>
-                                                <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;'>{$label}</td>
-                                                <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;text-align:center;font-weight:700;'>{$released}</td>
+                                                <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;color:#111827;'>{$label}</td>
+                                                <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;text-align:center;font-weight:700;color:#1d4ed8;'>{$released}</td>
                                             </tr>";
                                     }
                                 }
@@ -1202,8 +1202,8 @@ class UniformIssuancesTable
                                     $released = (int) ($row['released'] ?? 0);
                                     $rows .= "
                                         <tr>
-                                            <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;'>{$label}</td>
-                                            <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;text-align:center;font-weight:700;'>{$released}</td>
+                                            <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;color:#111827;'>{$label}</td>
+                                            <td style='padding:6px 8px;border:1px solid #d1d5db;font-size:12px;text-align:center;font-weight:700;color:#1d4ed8;'>{$released}</td>
                                         </tr>";
                                 }
 
@@ -1250,8 +1250,8 @@ class UniformIssuancesTable
                                         $label = e("{$item->uniformItem->uniform_item_name} ({$item->uniformItemVariant->uniform_item_size}) — {$recipient->employee_name}");
                                         $completeRows .= "
                                             <tr>
-                                                <td style='padding:5px 8px;border:1px solid #d1d5db;font-size:11px;'>{$label}</td>
-                                                <td style='padding:5px 8px;border:1px solid #d1d5db;font-size:11px;text-align:center;font-weight:700;'>{$released}</td>
+                                                <td style='padding:5px 8px;border:1px solid #d1d5db;font-size:11px;color:#111827;'>{$label}</td>
+                                                <td style='padding:5px 8px;border:1px solid #d1d5db;font-size:11px;text-align:center;font-weight:700;color:#1d4ed8;'>{$released}</td>
                                             </tr>";
                                     }
                                 }
@@ -1363,7 +1363,7 @@ class UniformIssuancesTable
                                 : '';
 
                             return new \Illuminate\Support\HtmlString("
-                                <div style='max-height:600px;overflow-y:auto;padding:4px;'>
+                                <div style='max-height:600px;overflow-y:auto;padding:4px;color:#111827;'>
                                     {$completeCard}
                                     {$separatorHtml}
                                     {$individualCards}
@@ -1470,7 +1470,8 @@ class UniformIssuancesTable
                         }),
 
 
-                    Action::make('for_delivery_receipt')
+                    
+                        Action::make('for_delivery_receipt')
                         ->label('For Delivery Receipt')
                         ->color('success')
                         ->icon('heroicon-o-document-check')
@@ -1861,7 +1862,8 @@ class UniformIssuancesTable
                         }),
                     
                     
-                    // ─── BILLING ──────────────────────────────────────────────────────────────
+                    
+                        // ─── BILLING ──────────────────────────────────────────────────────────────
                     Action::make('billing')
                         ->label('Billing')
                         ->color('warning')
