@@ -1121,6 +1121,7 @@ class UniformIssuancesTable
                         ->modalCancelActionLabel('Close'),
 
                     // ─── RECEIVING COPY ────────────────────────────────────────
+                    // ─── RECEIVING COPY ────────────────────────────────────────
                     Action::make('receiving_copy')
                         ->label('Receiving Copy')
                         ->color('gray')
