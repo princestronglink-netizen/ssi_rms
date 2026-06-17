@@ -11,7 +11,7 @@ class UniformIssuanceReceivingCopyService
     private const COMPANY_NAME_FULL = 'Stronglink Services Inc.';
     private const COMPANY_ADDRESS   = 'RL Bldg. Francisco Village, Brgy. Pulong Sta. Cruz, Sta. Rosa, Laguna';
     private const COMPANY_PHONE     = '(049) 543-9544';
-    private const COMPANY_LOGO      = '/images/logo.png';
+    // private const COMPANY_LOGO      = '/images/logo.png';
 
     public static function generate(
         UniformIssuances $issuance,
@@ -19,10 +19,10 @@ class UniformIssuanceReceivingCopyService
     ): string {
         $issuance->loadMissing(
             'site',
-            'uniformIssuanceType',
             'uniformIssuanceRecipient.position',
             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
-            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType'
         );
 
         $recipients = $recipient
@@ -32,9 +32,8 @@ class UniformIssuanceReceivingCopyService
         $slips = $recipients->map(fn ($rec) => self::buildSlipFromRecipient($issuance, $rec))->all();
         $title = 'Receiving Copy' . ($issuance->site ? ' — ' . $issuance->site->site_name : '');
 
-        $isSalaryDeduct = (bool) $issuance->uniformIssuanceType?->is_salary_deduct;
-
-        return self::wrapDocument($slips, $title, $isSalaryDeduct);
+        // is_salary_deduct is now resolved per-slip via item-level type
+        return self::wrapDocument($slips, $title, false);
     }
 
     /**
@@ -48,10 +47,10 @@ class UniformIssuanceReceivingCopyService
     ): string {
         $issuance->loadMissing(
             'site',
-            'uniformIssuanceType',
             'uniformIssuanceRecipient.position',
-            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem', // ← add this
-            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType'
         );
 
         $noteData = json_decode($log->note ?? '[]', true);
@@ -66,16 +65,21 @@ class UniformIssuanceReceivingCopyService
                 $qty          = (int) ($row['released'] ?? 0);
                 if ($qty <= 0) continue;
 
-                // Look up price by item name
                 $price = (float) (\App\Models\UniformItems::where('uniform_item_name', $itemName)
                     ->value('uniform_item_price') ?? 0);
 
+                $issuanceTypeName = self::resolveIssuanceTypeNameForEmployee(
+                    $issuance, $employeeName, $itemName, $itemSize
+                );
+
                 $byEmployee[$employeeName][] = [
-                    'name'     => $itemName,
-                    'size'     => $itemSize,
-                    'qty'      => $qty,
-                    'price'    => $price,
-                    'subtotal' => $price * $qty,
+                    'name'             => $itemName,
+                    'size'             => $itemSize,
+                    'qty'              => $qty,
+                    'price'            => $price,
+                    'subtotal'         => $price * $qty,
+                    'issuance_type'    => $issuanceTypeName,
+                    'is_salary_deduct' => self::isSalaryDeduct($issuanceTypeName),
                 ];
             }
         } else {
@@ -97,27 +101,34 @@ class UniformIssuanceReceivingCopyService
                     $itemSize = '—';
                 }
 
-                // Look up price by item name
                 $price = (float) (\App\Models\UniformItems::where('uniform_item_name', $itemName)
                     ->value('uniform_item_price') ?? 0);
 
+                $issuanceTypeName = self::resolveIssuanceTypeNameForEmployee(
+                    $issuance, $employeeName, $itemName, $itemSize
+                );
+
                 $byEmployee[$employeeName][] = [
-                    'name'     => $itemName,
-                    'size'     => $itemSize,
-                    'qty'      => $released,
-                    'price'    => $price,
-                    'subtotal' => $price * $released,
+                    'name'             => $itemName,
+                    'size'             => $itemSize,
+                    'qty'              => $released,
+                    'price'            => $price,
+                    'subtotal'         => $price * $released,
+                    'issuance_type'    => $issuanceTypeName,
+                    'is_salary_deduct' => self::isSalaryDeduct($issuanceTypeName),
                 ];
             }
         }
 
-        $slips          = [];
-        $isSalaryDeduct = (bool) $issuance->uniformIssuanceType?->is_salary_deduct;
-        $logDate        = \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('M d, Y');
+        $slips   = [];
+        $logDate = \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('M d, Y');
 
         foreach ($byEmployee as $employeeName => $items) {
             $rec = $issuance->uniformIssuanceRecipient
                 ->first(fn ($r) => $r->employee_name === $employeeName);
+
+            // Slip gets the ATD page if ANY of its items are salary-deduct
+            $isSalaryDeduct = collect($items)->contains('is_salary_deduct', true);
 
             $slips[] = [
                 'txn_id'           => $rec?->transaction_id ?? '—',
@@ -125,7 +136,6 @@ class UniformIssuanceReceivingCopyService
                 'employee'         => $employeeName,
                 'position'         => $rec?->position?->position_name ?? '—',
                 'site'             => $issuance->site?->site_name ?? '—',
-                'issuance_type'    => $issuance->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
                 'is_salary_deduct' => $isSalaryDeduct,
                 'items'            => $items,
                 'change_note'      => null,
@@ -138,25 +148,34 @@ class UniformIssuanceReceivingCopyService
                 . ($issuance->site ? ' — ' . $issuance->site->site_name : '')
                 . ' (' . $batchDate . ')';
 
-        return self::wrapDocument($slips, $title, $isSalaryDeduct);
+        return self::wrapDocument($slips, $title, false);
     }
 
     private static function buildSlipFromRecipient(UniformIssuances $issuance, $rec): array
     {
-        $items = [];
+        $items          = [];
+        $isSalaryDeduct = false;
 
         foreach ($rec->uniformIssuanceItem as $item) {
             $qty = (int) ($item->released_quantity ?: $item->quantity);
             if ($qty <= 0) continue;
 
-            $price = (float) ($item->uniformItem?->uniform_item_price ?? 0);
+            $price            = (float) ($item->uniformItem?->uniform_item_price ?? 0);
+            $issuanceTypeName = $item->uniformIssuanceType?->uniform_issuance_type_name ?? '—';
+            $itemIsSd         = self::isSalaryDeduct($issuanceTypeName);
+
+            if ($itemIsSd) {
+                $isSalaryDeduct = true;
+            }
 
             $items[] = [
-                'name'     => $item->uniformItem?->uniform_item_name ?? "Item #{$item->uniform_item_id}",
-                'size'     => $item->uniformItemVariant?->uniform_item_size ?? '—',
-                'qty'      => $qty,
-                'price'    => $price,
-                'subtotal' => $price * $qty,
+                'name'             => $item->uniformItem?->uniform_item_name ?? "Item #{$item->uniform_item_id}",
+                'size'             => $item->uniformItemVariant?->uniform_item_size ?? '—',
+                'qty'              => $qty,
+                'price'            => $price,
+                'subtotal'         => $price * $qty,
+                'issuance_type'    => $issuanceTypeName,
+                'is_salary_deduct' => $itemIsSd,
             ];
         }
 
@@ -168,36 +187,78 @@ class UniformIssuanceReceivingCopyService
             'employee'         => $rec->employee_name ?? 'Unknown Employee',
             'position'         => $rec->position?->position_name ?? '—',
             'site'             => $issuance->site?->site_name ?? '—',
-            'issuance_type'    => $issuance->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
-            'is_salary_deduct' => (bool) $issuance->uniformIssuanceType?->is_salary_deduct,
+            'is_salary_deduct' => $isSalaryDeduct,
             'items'            => $items,
             'change_note'      => null,
             'is_amendment'     => false,
         ];
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Walk the issuance's recipient items to find the issuance type name
+     * that matches a given employee + item name + size combination.
+     * Falls back to '—' if not found.
+     */
+    private static function resolveIssuanceTypeNameForEmployee(
+        UniformIssuances $issuance,
+        string $employeeName,
+        string $itemName,
+        string $itemSize
+    ): string {
+        $rec = $issuance->uniformIssuanceRecipient
+            ->first(fn ($r) => $r->employee_name === $employeeName);
+
+        if (! $rec) return '—';
+
+        $matched = $rec->uniformIssuanceItem->first(function ($item) use ($itemName, $itemSize) {
+            $nameMatch = ($item->uniformItem?->uniform_item_name ?? '') === $itemName;
+            $sizeMatch = ($item->uniformItemVariant?->uniform_item_size ?? '') === $itemSize
+                      || $itemSize === '—';
+            return $nameMatch && $sizeMatch;
+        });
+
+        return $matched?->uniformIssuanceType?->uniform_issuance_type_name ?? '—';
+    }
+
+    /**
+     * Determine if a type name represents a salary-deduct issuance.
+     */
+    private static function isSalaryDeduct(?string $typeName): bool
+    {
+        if (! $typeName) return false;
+        return str_contains(strtolower($typeName), 'salary deduct');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Rendering
+    // ─────────────────────────────────────────────────────────────────────────
+
     private static function renderSlip(array $d): string
     {
-        $employee     = e($d['employee']);
-        $position     = e($d['position']);
-        $site         = e($d['site']);
-        $issuanceType = e($d['issuance_type']);
-        $txnId        = e($d['txn_id']);
-        $date         = e($d['date']);
-        $cn           = e(self::COMPANY_NAME);
-        $addr         = e(self::COMPANY_ADDRESS);
-        $phone        = e(self::COMPANY_PHONE);
-        $logo         = e(self::COMPANY_LOGO);
+        $employee = e($d['employee']);
+        $position = e($d['position']);
+        $site     = e($d['site']);
+        $txnId    = e($d['txn_id']);
+        $date     = e($d['date']);
+        $cn       = e(self::COMPANY_NAME);
+        $addr     = e(self::COMPANY_ADDRESS);
+        $phone    = e(self::COMPANY_PHONE);
+        // $logo     = e(self::COMPANY_LOGO);
 
         $itemRows   = '';
         $grandTotal = 0;
 
         foreach ($d['items'] as $i => $item) {
-            $no   = $i + 1;
-            $name = e($item['name']);
-            $size = e($item['size']);
-            $qty  = (int) $item['qty'];
-            $grandTotal += $qty;
+            $no           = $i + 1;
+            $name         = e($item['name']);
+            $size         = e($item['size']);
+            $qty          = (int) $item['qty'];
+            $issuanceType = e($item['issuance_type'] ?? '—');
+            $grandTotal  += $qty;
             $bg = $i % 2 === 0 ? '#ffffff' : '#f8fafc';
             $itemRows .= "
                 <tr style='background:{$bg};'>
@@ -205,6 +266,7 @@ class UniformIssuanceReceivingCopyService
                     <td class='tl nb' style='font-size:11px;color:#111827;font-weight:500;'>{$name}</td>
                     <td class='tc nb' style='width:44px;font-size:11px;color:#374151;'>{$size}</td>
                     <td class='tc nb' style='width:32px;font-size:12px;font-weight:800;color:#1d4ed8;'>{$qty}</td>
+                    <td class='tl nb' style='width:80px;font-size:9px;color:#6b7280;'>{$issuanceType}</td>
                     <td class='tl nb' style='width:62px;'>&nbsp;</td>
                 </tr>";
         }
@@ -218,6 +280,7 @@ class UniformIssuanceReceivingCopyService
                     <td class='tc nb'>&nbsp;</td>
                     <td class='tc nb'>&nbsp;</td>
                     <td class='tl nb'>&nbsp;</td>
+                    <td class='tl nb'>&nbsp;</td>
                 </tr>";
         }
 
@@ -225,9 +288,6 @@ class UniformIssuanceReceivingCopyService
         <div class='slip'>
             <div class='slip-head' style='border-bottom-color:#1e3a5f;'>
                 <div class='slip-brand'>
-                    <div class='slip-logo'>
-                        <img src='{$logo}' alt='{$cn}' style='width:100%;height:100%;object-fit:contain;display:block;'>
-                    </div>
                     <div>
                         <div class='brand-name'>{$cn}</div>
                         <div class='brand-addr'>{$addr}</div>
@@ -257,12 +317,6 @@ class UniformIssuanceReceivingCopyService
                             <span class='mv'>{$site}</span>
                         </td>
                         <td style='text-align:right;padding:2.5px 0;'>
-                            <span class='ml'>Type:</span>
-                            <span class='mv'>{$issuanceType}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td colspan='2' style='padding:2.5px 0;'>
                             <span class='ml'>Position:</span>
                             <span class='mv'>{$position}</span>
                         </td>
@@ -277,6 +331,7 @@ class UniformIssuanceReceivingCopyService
                             <th class='th-dark tl'>Description of Item</th>
                             <th class='th-dark tc' style='width:44px;'>Size</th>
                             <th class='th-dark tc' style='width:32px;color:#93c5fd;'>Qty</th>
+                            <th class='th-dark tl' style='width:80px;color:#a5b4fc;'>Type</th>
                             <th class='th-dark tl' style='width:62px;color:#94a3b8;'>Remarks</th>
                         </tr>
                     </thead>
@@ -285,7 +340,7 @@ class UniformIssuanceReceivingCopyService
                         <tr style='background:#eff6ff;border-top:2px solid #93c5fd;'>
                             <td colspan='3' class='tr' style='padding:4px 8px;font-size:10px;font-weight:700;color:#374151;border-right:1px solid #cbd5e1;'>TOTAL ITEMS RECEIVED:</td>
                             <td class='tc' style='padding:4px 8px;font-size:14px;font-weight:900;color:#1d4ed8;border-right:1px solid #cbd5e1;'>{$grandTotal}</td>
-                            <td style='padding:4px 8px;'>&nbsp;</td>
+                            <td colspan='2' style='padding:4px 8px;'>&nbsp;</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -319,11 +374,12 @@ class UniformIssuanceReceivingCopyService
         $cnFull   = e(self::COMPANY_NAME_FULL);
         $addr     = e(self::COMPANY_ADDRESS);
         $phone    = e(self::COMPANY_PHONE);
-        $logo     = e(self::COMPANY_LOGO);
+        // $logo     = e(self::COMPANY_LOGO);
 
-        // Compute total and build item descriptions
+        // Only salary-deduct items contribute to the ATD total
         $totalAmount = 0;
         foreach ($d['items'] as $item) {
+            if (! ($item['is_salary_deduct'] ?? false)) continue;
             $qty      = (int) $item['qty'];
             $price    = (float) ($item['price'] ?? 0);
             $subtotal = (float) ($item['subtotal'] ?? $price * $qty);
@@ -331,18 +387,14 @@ class UniformIssuanceReceivingCopyService
         }
 
         $totalFormatted   = number_format($totalAmount, 2);
-        $itemDescriptions = collect($d['items'])->map(fn ($i) =>
-            e($i['name']) . ' (' . e($i['size']) . ')'
-        )->implode(', ');
-
-        // <div class='atd-logo'>
-        //     <img src='{$logo}' alt='{$cn}' style='width:100%;height:100%;object-fit:contain;display:block;'>
-        // </div>
+        $itemDescriptions = collect($d['items'])
+            ->filter(fn ($i) => $i['is_salary_deduct'] ?? false)
+            ->map(fn ($i) => e($i['name']) . ' (' . e($i['size']) . ')')
+            ->implode(', ');
 
         return "
             <div class='slip atd-slip'>
                 <div class='atd-head'>
-                    
                     <div style='text-align:center;flex:1;'>
                         <div style='font-size:13px;font-weight:900;color:#1e3a5f;letter-spacing:.05em;text-transform:uppercase;'>{$cn}</div>
                         <div style='font-size:8px;color:#64748b;margin-top:1px;'>{$addr}</div>
@@ -391,6 +443,7 @@ class UniformIssuanceReceivingCopyService
         $pages      = [];
 
         foreach ($slips as $slip) {
+            // A slip gets an ATD page if it contains any salary-deduct item
             $isSd = $globalSalaryDeduct || (bool) ($slip['is_salary_deduct'] ?? false);
 
             if ($isSd) {
@@ -458,7 +511,9 @@ class UniformIssuanceReceivingCopyService
         $pages     = self::buildPages($slips, $isSalaryDeduct);
         $genTime   = now()->timezone('Asia/Manila')->format('M d, Y h:i A');
         $safeTitle = e($title);
-        $atdNote   = $isSalaryDeduct ? " &nbsp;+&nbsp; {$count} ATD slip(s)" : '';
+
+        $sdCount = collect($slips)->where('is_salary_deduct', true)->count();
+        $atdNote = $sdCount > 0 ? " &nbsp;+&nbsp; {$sdCount} ATD slip(s)" : '';
 
         return <<<HTML
 <!DOCTYPE html>

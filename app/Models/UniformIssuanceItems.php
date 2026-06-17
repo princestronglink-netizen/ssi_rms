@@ -15,6 +15,7 @@ class UniformIssuanceItems extends Model
         'quantity',
         'released_quantity',
         'remaining_quantity',
+        'uniform_issuance_type_id'
     ];
 
     protected $casts = [
