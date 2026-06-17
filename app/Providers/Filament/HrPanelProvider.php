@@ -29,7 +29,7 @@ use App\Filament\Resources\UniformItems\UniformItemsResource;
 use App\Filament\Resources\UniformItemVariants\UniformItemVariantsResource;
 use App\Filament\Resources\UniformRestocks\UniformRestocksResource;
 use App\Filament\Resources\UniformSets\UniformSetsResource;
-use App\Filament\Resources\UniformSets\ReturnUniformItemsResource;
+use App\Filament\Resources\ReturnUniformItems\ReturnUniformItemsResource;
 use Filament\Navigation\NavigationGroup;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use App\Filament\Pages\UniformStockFlow;
