@@ -27,8 +27,7 @@ class UniformItemsForm
                         ignoreRecord: true,
                     )
                     ->required(),
-                TextInput::make('uniform_item_description')
-                    ->required(),
+                TextInput::make('uniform_item_description'),
                 TextInput::make('uniform_item_price')
                     ->required()
                     ->numeric(),
