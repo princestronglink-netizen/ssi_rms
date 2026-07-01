@@ -99,6 +99,7 @@ class TransmittalsTable
             ->filters([
                 //
             ])
+            ->defaultSort('created_at', 'desc')
             ->recordActions([
 
                 // ─── VIEW ──────────────────────────────────────────────────
@@ -133,35 +134,97 @@ class TransmittalsTable
                         };
 
                         // Items rows
-                        $itemRows   = '';
-                        $totalItems = 0;
-                        $items      = is_array($record->items_summary)
+                        $items = is_array($record->items_summary)
                             ? $record->items_summary
                             : (json_decode($record->items_summary, true) ?? []);
 
-                        foreach ($items as $i => $row) {
-                            $itemName = e($row['item_name'] ?? $row['item'] ?? '—');
-                            $size     = e($row['size'] ?? '—');
-                            $qty      = (int) ($row['qty'] ?? $row['quantity'] ?? 0);
-                            $remarks  = e($row['remarks'] ?? '');
-                            $totalItems += $qty;
-                            $bg = $i % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        $grouped = [];
+                        foreach ($items as $row) {
+                            // Old saved transmittals (pre-fix) won't have 'employee' — fall back to a bucket
+                            // so the modal still renders instead of throwing a key error.
+                            $employee = trim($row['employee'] ?? '') ?: 'Unassigned';
 
-                            $itemRows .= "
-                                <tr style='background:{$bg};'>
-                                    <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;font-weight:500;'>{$itemName}</td>
-                                    <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151;text-align:center;'>{$size}</td>
-                                    <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:700;text-align:center;color:#1d4ed8;'>{$qty}</td>
-                                    <td style='padding:9px 14px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;'>{$remarks}</td>
-                                </tr>";
+                            $grouped[$employee][] = [
+                                'item_name' => $row['item_name'] ?? $row['item'] ?? '—',
+                                'size'      => $row['size'] ?? '—',
+                                'qty'       => (int) ($row['qty'] ?? $row['quantity'] ?? 0),
+                                'remarks'   => $row['remarks'] ?? '',
+                            ];
                         }
 
-                        $itemRows .= "
-                            <tr style='background:#eff6ff;border-top:2px solid #93c5fd;'>
-                                <td colspan='2' style='padding:8px 14px;font-size:11px;font-weight:700;color:#374151;text-align:right;'>TOTAL ITEMS</td>
-                                <td style='padding:8px 14px;font-size:14px;font-weight:900;color:#1d4ed8;text-align:center;'>{$totalItems}</td>
-                                <td></td>
-                            </tr>";
+                        $avatarStyles = [
+                            ['bg' => '#E6F1FB', 'color' => '#0C447C'],
+                            ['bg' => '#E1F5EE', 'color' => '#0F6E56'],
+                            ['bg' => '#EEEDFE', 'color' => '#3C3489'],
+                            ['bg' => '#FAEEDA', 'color' => '#633806'],
+                            ['bg' => '#FAECE7', 'color' => '#712B13'],
+                        ];
+
+                        $recipientBlocks = '';
+                        $totalItems      = 0;
+                        $empIndex        = 0;
+
+                        foreach ($grouped as $employeeName => $empItems) {
+                            $empIndex++;
+                            $av = $avatarStyles[($empIndex - 1) % count($avatarStyles)];
+
+                            $words    = explode(' ', trim($employeeName));
+                            $initials = strtoupper(
+                                (isset($words[0]) ? substr($words[0], 0, 1) : '') .
+                                (isset($words[1]) ? substr($words[1], 0, 1) : '')
+                            );
+
+                            $empTotal  = 0;
+                            $tableRows = '';
+                            foreach ($empItems as $i => $item) {
+                                $itemName = e($item['item_name']);
+                                $size     = e($item['size']);
+                                $qty      = (int) $item['qty'];
+                                $remarks  = e($item['remarks']);
+                                $empTotal += $qty;
+                                $bg = $i % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+                                $tableRows .= "
+                                    <tr style='background:{$bg};'>
+                                        <td style='padding:8px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px;color:#111827;font-weight:500;'>{$itemName}</td>
+                                        <td style='padding:8px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px;color:#374151;text-align:center;'>{$size}</td>
+                                        <td style='padding:8px 14px;border-bottom:1px solid #f1f5f9;font-size:12.5px;font-weight:700;text-align:center;color:#1d4ed8;'>{$qty}</td>
+                                        <td style='padding:8px 14px;border-bottom:1px solid #f1f5f9;font-size:11.5px;color:#6b7280;'>{$remarks}</td>
+                                    </tr>";
+                            }
+
+                            $totalItems += $empTotal;
+
+                            $recipientBlocks .= "
+                                <div style='border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:10px;'>
+                                    <div style='display:flex;align-items:center;gap:12px;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;'>
+                                        <div style='width:32px;height:32px;border-radius:50%;background:{$av['bg']};flex-shrink:0;
+                                            display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:{$av['color']};'>
+                                            {$initials}
+                                        </div>
+                                        <div style='flex:1;min-width:0;'>
+                                            <div style='font-size:13px;font-weight:700;color:#111827;'>" . e($employeeName) . "</div>
+                                        </div>
+                                        <div style='background:{$av['bg']};color:{$av['color']};font-size:12px;font-weight:700;
+                                            padding:3px 12px;border-radius:999px;white-space:nowrap;flex-shrink:0;'>
+                                            {$empTotal}&nbsp;pc" . ($empTotal !== 1 ? 's' : '') . "
+                                        </div>
+                                    </div>
+                                    <table style='width:100%;border-collapse:collapse;'>
+                                        <thead>
+                                            <tr style='background:#f1f5f9;'>
+                                                <th style='padding:6px 14px;text-align:left;font-size:9.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;'>Item</th>
+                                                <th style='padding:6px 14px;text-align:center;font-size:9.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;width:60px;'>Size</th>
+                                                <th style='padding:6px 14px;text-align:center;font-size:9.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;width:50px;'>Qty</th>
+                                                <th style='padding:6px 14px;text-align:left;font-size:9.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;'>Remarks</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>{$tableRows}</tbody>
+                                    </table>
+                                </div>";
+                        }
+
+                        $empCount = $empIndex;
 
                         // ─── Receipt tracking timeline ─────────────────────
                         $steps = [
@@ -367,20 +430,14 @@ class TransmittalsTable
                                 </div>
 
                                 <div style='border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;'>
-                                    <div style='background:#f1f5f9;padding:9px 14px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;'>
-                                        Items Summary
+                                    <div style='background:#f1f5f9;padding:9px 14px;font-size:11px;font-weight:700;color:#475569;
+                                        text-transform:uppercase;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center;'>
+                                        <span>Items Summary &nbsp;·&nbsp; {$empCount} recipient" . ($empCount !== 1 ? 's' : '') . "</span>
+                                        <span style='color:#1d4ed8;font-size:12.5px;font-weight:800;'>{$totalItems} total pcs</span>
                                     </div>
-                                    <table style='width:100%;border-collapse:collapse;'>
-                                        <thead>
-                                            <tr style='background:#1e3a5f;'>
-                                                <th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#e0f2fe;text-transform:uppercase;letter-spacing:.05em;'>Item</th>
-                                                <th style='padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:#e0f2fe;text-transform:uppercase;letter-spacing:.05em;width:70px;'>Size</th>
-                                                <th style='padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:#93c5fd;text-transform:uppercase;letter-spacing:.05em;width:60px;'>Qty</th>
-                                                <th style='padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#e0f2fe;text-transform:uppercase;letter-spacing:.05em;'>Remarks</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>{$itemRows}</tbody>
-                                    </table>
+                                    <div style='padding:10px;'>
+                                        {$recipientBlocks}
+                                    </div>
                                 </div>
 
                                 {$receiptTrackingHtml}

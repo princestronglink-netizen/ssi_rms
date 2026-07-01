@@ -79,6 +79,7 @@ class UniformIssuancesTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->defaultSort('created_at', 'desc')
             ->filters([
                 //
             ])
@@ -1485,16 +1486,25 @@ class UniformIssuancesTable
 
                                 $summaryMap = [];
                                 foreach ($record->uniformIssuanceRecipient as $recipient) {
+                                    $employeeName = $recipient->employee_name ?? '—';
+
                                     foreach ($recipient->uniformIssuanceItem as $item) {
                                         $qty = (int) ($item->released_quantity ?: $item->quantity);
                                         if ($qty <= 0) continue;
 
                                         $itemName = $item->uniformItem?->uniform_item_name ?? '—';
                                         $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
-                                        $key      = $itemName . '||' . $size;
+
+                                        // Key by employee + item + size so quantities never merge across recipients
+                                        $key = $employeeName . '||' . $itemName . '||' . $size;
 
                                         if (!isset($summaryMap[$key])) {
-                                            $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
+                                            $summaryMap[$key] = [
+                                                'employee'  => $employeeName,
+                                                'item_name' => $itemName,
+                                                'size'      => $size,
+                                                'qty'       => 0,
+                                            ];
                                         }
                                         $summaryMap[$key]['qty'] += $qty;
                                     }
@@ -3277,16 +3287,23 @@ class UniformIssuancesTable
                                 );
 
                                 foreach ($issuance->uniformIssuanceRecipient as $recipient) {
+                                    $employeeName = $recipient->employee_name ?? '—';
+
                                     foreach ($recipient->uniformIssuanceItem as $item) {
                                         $qty = (int) ($item->released_quantity ?: $item->quantity);
                                         if ($qty <= 0) continue;
 
                                         $itemName = $item->uniformItem?->uniform_item_name ?? '—';
                                         $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
-                                        $key      = $itemName . '||' . $size;
+                                        $key      = $employeeName . '||' . $itemName . '||' . $size;
 
                                         if (!isset($summaryMap[$key])) {
-                                            $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
+                                            $summaryMap[$key] = [
+                                                'employee'  => $employeeName,
+                                                'item_name' => $itemName,
+                                                'size'      => $size,
+                                                'qty'       => 0,
+                                            ];
                                         }
                                         $summaryMap[$key]['qty'] += $qty;
                                     }
