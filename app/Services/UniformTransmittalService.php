@@ -33,6 +33,8 @@ class UniformTransmittalService
             ];
         }
 
+        $rows = self::backfillEmployees($issuance, $rows);
+
         $data = [
             'transmittal_number' => $transmittal->transmittal_number,
             'transmitted_by'     => $transmittal->transmitted_by,
@@ -41,7 +43,7 @@ class UniformTransmittalService
             'purpose'            => $transmittal->purpose ?? '',
             'instructions'       => $transmittal->instructions ?? '',
             'date'               => \Carbon\Carbon::parse($transmittal->transmitted_at)->timezone('Asia/Manila')->format('F d, Y'),
-            'rows'               => self::mergeRows($rows),
+            'rows'               => self::groupRowsByEmployee($rows),
         ];
 
         $siteName = $issuance->site?->site_name ?? '';
@@ -101,6 +103,8 @@ class UniformTransmittalService
             ];
         }
 
+        $rows = self::backfillEmployees($issuance, $rows);
+
         $data = [
             'transmittal_number' => $transmittal->transmittal_number,
             'transmitted_by'     => $transmittal->transmitted_by,
@@ -111,7 +115,7 @@ class UniformTransmittalService
             'date'               => \Carbon\Carbon::parse($transmittal->transmitted_at)
                                         ->timezone('Asia/Manila')
                                         ->format('F d, Y'),
-            'rows'               => self::mergeRows($rows),
+            'rows'               => self::groupRowsByEmployee($rows),
         ];
 
         $siteName = $issuance->site?->site_name ?? '';
@@ -202,7 +206,7 @@ class UniformTransmittalService
             'purpose'        => $purpose,
             'instructions'   => $instructions,
             'date'           => $logDate,
-            'rows'           => self::mergeRows($rows),
+            'rows'           => self::groupRowsByEmployee($rows),
         ];
 
         $siteName = $issuance->site?->site_name ?? '';
@@ -243,29 +247,89 @@ class UniformTransmittalService
             'purpose'        => $purpose,
             'instructions'   => $instructions,
             'date'           => \Carbon\Carbon::parse($dateSource)->timezone('Asia/Manila')->format('F d, Y'),
-            'rows'           => self::mergeRows($rows),
+            'rows'           => self::groupRowsByEmployee($rows),
         ];
     }
 
     /**
-     * Merge rows by item_name + size, summing quantities.
-     * Employee name is dropped — transmittal only shows item + size + total qty.
+     * Backfill missing employee names in saved items_summary rows by matching
+     * item_name + size against the issuance's live recipient data.
+     * Needed because some saved transmittals don't store 'employee' in items_summary.
+     *
+     * NOTE: This is a fallback. The permanent fix is to make sure whatever
+     * code SAVES the Transmittals record (items_summary column) always
+     * includes 'employee' => $recipient->employee_name for each row.
      */
-    private static function mergeRows(array $rows): array
+    private static function backfillEmployees(UniformIssuances $issuance, array $rows): array
     {
-        $merged = [];
-        foreach ($rows as $row) {
+        $issuance->loadMissing(
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+            'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
+        );
+
+        // Build a queue of employee names per "item_name||size" key
+        $queue = [];
+        foreach ($issuance->uniformIssuanceRecipient as $recipient) {
+            foreach ($recipient->uniformIssuanceItem as $item) {
+                $itemName = trim($item->uniformItem?->uniform_item_name ?? '');
+                $size     = trim($item->uniformItemVariant?->uniform_item_size ?? '');
+                $key      = $itemName . '||' . $size;
+                $queue[$key][] = $recipient->employee_name ?? 'Unknown';
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $hasEmployee = !empty($row['employee']) && $row['employee'] !== '—';
+            if ($hasEmployee) continue;
+
             $key = trim($row['item_name'] ?? '') . '||' . trim($row['size'] ?? '');
-            if (!isset($merged[$key])) {
-                $merged[$key] = [
+
+            if (!empty($queue[$key])) {
+                $row['employee'] = array_shift($queue[$key]);
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
+     * Group rows by employee. Each employee becomes ONE row; their items
+     * (name + size + qty) are merged together for display in a single cell.
+     */
+    private static function groupRowsByEmployee(array $rows): array
+    {
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $employee = trim($row['employee'] ?? '') ?: 'Unknown';
+
+            if (!isset($groups[$employee])) {
+                $groups[$employee] = [];
+            }
+
+            $key = trim($row['item_name'] ?? '') . '||' . trim($row['size'] ?? '');
+
+            if (!isset($groups[$employee][$key])) {
+                $groups[$employee][$key] = [
                     'item_name' => $row['item_name'] ?? '—',
                     'size'      => $row['size'] ?? '',
                     'qty'       => 0,
                 ];
             }
-            $merged[$key]['qty'] += (int) ($row['qty'] ?? 0);
+
+            $groups[$employee][$key]['qty'] += (int) ($row['qty'] ?? 0);
         }
-        return array_values($merged);
+
+        $result = [];
+        foreach ($groups as $employee => $items) {
+            $result[] = [
+                'employee' => $employee,
+                'items'    => array_values($items),
+            ];
+        }
+
+        return $result;
     }
 
     private static function renderPage(array $d): string
@@ -288,18 +352,26 @@ class UniformTransmittalService
 
         $itemRows = '';
         $MIN_ROWS = 12;
+        $no       = 0;
 
-        foreach ($rows as $i => $row) {
-            $no       = $i + 1;
-            $itemName = e($row['item_name']);
-            $size     = !empty($row['size']) ? ' (' . e($row['size']) . ')' : '';
-            $qty      = (int) $row['qty'];
-            $desc     = "{$itemName}{$size}";
+        foreach ($rows as $group) {
+            $no++;
+            $employeeName = e($group['employee']);
+
+            $parts = [];
+            foreach ($group['items'] as $item) {
+                $itemName = e($item['item_name']);
+                $size     = !empty($item['size']) ? ' (' . e($item['size']) . ')' : '';
+                $qty      = (int) $item['qty'];
+                $unit     = $qty === 1 ? 'pc' : 'pcs';
+                $parts[]  = "{$itemName}{$size} - {$qty}{$unit}";
+            }
+            $desc = implode('; ', $parts);
 
             $itemRows .= "
                 <tr class='data-row'>
                     <td class='c-no'>{$no}</td>
-                    <td class='c-qty'>{$qty} PCS</td>
+                    <td class='c-recipient'>{$employeeName}</td>
                     <td class='c-desc'>{$desc}</td>
                 </tr>";
         }
@@ -308,7 +380,7 @@ class UniformTransmittalService
             $itemRows .= "
                 <tr class='data-row filler'>
                     <td class='c-no'>&nbsp;</td>
-                    <td class='c-qty'>&nbsp;</td>
+                    <td class='c-recipient'>&nbsp;</td>
                     <td class='c-desc'>&nbsp;</td>
                 </tr>";
         }
@@ -318,7 +390,8 @@ class UniformTransmittalService
 
     <div class="co-header">
         <div class="co-logo-wrap">
-            <img src="{$logo}" alt="{$cn}" class="co-logo-img">
+            <!-- <img src="{$logo}" alt="{$cn}" class="co-logo-img"> -->
+             <h3 style="white-space:nowrap;">{$cn}</h3>
         </div>
         <div class="co-tagline">{$tagline}</div>
     </div>
@@ -355,8 +428,8 @@ class UniformTransmittalService
     <table class="items-table">
         <thead>
             <tr class="col-header">
-                <th class="c-no">ITEM NO.</th>
-                <th class="c-qty">QTY</th>
+                <th class="c-no">NO.</th>
+                <th class="c-recipient">RECIPIENT</th>
                 <th class="c-desc">ITEM DESCRIPTION</th>
             </tr>
         </thead>
@@ -412,9 +485,16 @@ HTML;
             $pagesHtml .= "<div class='a4' style='{$pb}'>" . self::renderPage($data) . "</div>";
         }
 
-        $totalItems = array_sum(array_map(fn ($d) => count($d['rows']), $pages));
+        $totalItems = array_sum(array_map(
+            fn ($d) => array_sum(array_map(fn ($g) => count($g['items']), $d['rows'])),
+            $pages
+        ));
+
         $grandTotal = array_sum(array_map(
-            fn ($d) => array_sum(array_column($d['rows'], 'qty')),
+            fn ($d) => array_sum(array_map(
+                fn ($g) => array_sum(array_column($g['items'], 'qty')),
+                $d['rows']
+            )),
             $pages
         ));
         $pageBadge = $totalPages > 1 ? " &nbsp;·&nbsp; {$totalPages} pages" : '';
@@ -493,13 +573,12 @@ body{font-family:Arial,sans-serif;background:#d1d9e6;color:#000;}
 .meta-issuance-type{text-align:center;font-size:11pt;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2.5mm 3mm;border-top:1px solid #ccc;border-right:none;color:#1a237e;}
 
 .items-table{width:100%;border-collapse:collapse;border:1.5px solid #000;border-top:none;flex:1;table-layout:fixed;}
-.c-no{width:16mm;}.c-qty{width:22mm;}
 .col-header th{padding:2mm 2mm;font-size:8pt;font-weight:700;text-transform:uppercase;text-align:center;background:#1a237e;color:#fff;border:1px solid #000;letter-spacing:.04em;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 .data-row td{border-bottom:1px solid #e0e0e0;border-right:1px solid #ccc;vertical-align:middle;height:9mm;}
 .data-row td:last-child{border-right:none;}
-.c-no{text-align:center;font-size:9.5pt;border-right:1px solid #000 !important;}
-.c-qty{text-align:center;font-size:9.5pt;font-weight:600;border-right:1px solid #000 !important;white-space:nowrap;}
-.c-desc{text-align:center;font-size:9.5pt;padding:1.5mm 3mm;}
+.c-no{width:14mm;text-align:center;font-size:9.5pt;border-right:1px solid #000 !important;}
+.c-recipient{width:38mm;text-align:left;font-size:9.5pt;font-weight:700;padding:1.5mm 3mm;border-right:1px solid #000 !important;color:#1a237e;text-transform:uppercase;}
+.c-desc{text-align:left;font-size:9.5pt;padding:1.5mm 3mm;line-height:1.5;}
 
 .bottom-table{width:100%;border-collapse:collapse;border:1.5px solid #000;border-top:1.5px solid #000;flex-shrink:0;}
 .bottom-table td{border:1px solid #ccc;vertical-align:middle;padding:1.8mm 3mm;font-size:9.5pt;}

@@ -1376,99 +1376,174 @@ class UniformIssuancesTable
                         ->modalCancelActionLabel('Close'),
 
                         Action::make('transmit')
-                        ->label('Transmit')
-                        ->color('primary')
-                        ->icon('heroicon-o-paper-airplane')
-                        ->visible(fn ($record) =>
-                            in_array($record->uniform_issuance_status, ['partial', 'issued'])
-                            && ! $record->is_for_transmit
-                        )
-                        ->form([
-                            \Filament\Forms\Components\TextInput::make('transmitted_to')
-                                ->label('Transmitted To')
-                                ->placeholder('e.g. Site Manager / Supervisor name')
-                                ->required(),
-                            \Filament\Forms\Components\TextInput::make('transmitted_by')
-                                ->label('Transmitted By')
-                                ->default(fn () => Auth::user()?->name ?? '')
-                                ->required(),
-                            \Filament\Forms\Components\TextInput::make('purpose')
-                                ->label('Purpose')
-                                ->placeholder('e.g. New hire uniform issuance'),
-                            \Filament\Forms\Components\TextInput::make('instructions')
-                                ->label('Instructions')
-                                ->placeholder('e.g. Please sign and return copy'),
-                        ])
-                        ->action(function ($record, array $data, Action $action) {
-                            $record->loadMissing(
-                                'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
-                                'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
-                            );
-    
-                            $summaryMap = [];
-                            foreach ($record->uniformIssuanceRecipient as $recipient) {
-                                foreach ($recipient->uniformIssuanceItem as $item) {
-                                    $qty = (int) ($item->released_quantity ?: $item->quantity);
-                                    if ($qty <= 0) continue;
-    
-                                    $itemName = $item->uniformItem?->uniform_item_name ?? '—';
-                                    $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
-                                    $key      = $itemName . '||' . $size;
-    
-                                    if (!isset($summaryMap[$key])) {
-                                        $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
-                                    }
-                                    $summaryMap[$key]['qty'] += $qty;
+                            ->label(fn ($record) =>
+                                \App\Models\Transmittals::where('uniform_issuance_id', $record->id)->exists()
+                                    ? 'Transmittal'
+                                    : 'Transmit'
+                            )
+                            ->color('primary')
+                            ->icon(fn ($record) =>
+                                \App\Models\Transmittals::where('uniform_issuance_id', $record->id)->exists()
+                                    ? 'heroicon-o-document-text'
+                                    : 'heroicon-o-paper-airplane'
+                            )
+                            ->modalWidth('2xl')
+                            ->visible(fn ($record) => in_array($record->uniform_issuance_status, ['partial', 'issued']))
+                            ->modalHeading(fn ($record) =>
+                                \App\Models\Transmittals::where('uniform_issuance_id', $record->id)->exists()
+                                    ? 'Transmittals'
+                                    : 'Create Transmittal'
+                            )
+                            ->modalContent(function ($record) {
+                                $transmittals = \App\Models\Transmittals::where('uniform_issuance_id', $record->id)
+                                    ->latest()
+                                    ->get();
+
+                                if ($transmittals->isEmpty()) {
+                                    return null;
                                 }
-                            }
-    
-                            if (empty($summaryMap)) {
+
+                                $rows = '';
+                                foreach ($transmittals as $txn) {
+                                    $txNum  = e($txn->transmittal_number);
+                                    $txTo   = e($txn->transmitted_to);
+                                    $txDate = $txn->transmitted_at
+                                        ? \Carbon\Carbon::parse($txn->transmitted_at)->format('M d, Y')
+                                        : '—';
+
+                                    $statusColor = match ($txn->status) {
+                                        'received_from_office' => '#0284c7',
+                                        'received_from_site'   => '#16a34a',
+                                        'document_returned'    => '#6b7280',
+                                        default                => '#d97706',
+                                    };
+                                    $statusLabel = match ($txn->status) {
+                                        'pending'              => 'PENDING',
+                                        'received_from_office' => 'RECV. OFFICE',
+                                        'received_from_site'   => 'RECV. SITE',
+                                        'document_returned'    => 'DOC RETURNED',
+                                        default                => strtoupper($txn->status),
+                                    };
+
+                                    $printUrl = route('uniform-issuances.transmittal', [
+                                        'issuance'    => $record->id,
+                                        'transmittal' => $txn->id,
+                                    ]);
+
+                                    $rows .= "
+                                        <div style='border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff;'>
+                                            <div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'>
+                                                <div>
+                                                    <div style='font-size:13px;font-weight:700;color:#1e3a5f;'>{$txNum}</div>
+                                                    <div style='font-size:11.5px;color:#6b7280;margin-top:2px;'>To: {$txTo}</div>
+                                                    <div style='font-size:10.5px;color:#9ca3af;margin-top:1px;'>{$txDate}</div>
+                                                </div>
+                                                <span style='background:{$statusColor};color:#fff;font-size:9.5px;font-weight:700;
+                                                    padding:3px 9px;border-radius:999px;white-space:nowrap;letter-spacing:.04em;'>{$statusLabel}</span>
+                                            </div>
+                                            <div style='margin-top:8px;text-align:right;'>
+                                                <a href='{$printUrl}' target='_blank' style='font-size:11.5px;color:#2563eb;font-weight:600;text-decoration:underline;'>
+                                                    View / Print ↗
+                                                </a>
+                                            </div>
+                                        </div>";
+                                }
+
+                                return new \Illuminate\Support\HtmlString("
+                                    <div style='font-family:\"DM Sans\",system-ui,sans-serif;'>
+                                        <div style='font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;'>
+                                            Existing Transmittals ({$transmittals->count()})
+                                        </div>
+                                        {$rows}
+                                        <div style='font-size:11px;color:#9ca3af;margin-top:6px;'>
+                                            Need another one? Fill in the form below to create an additional transmittal.
+                                        </div>
+                                    </div>
+                                ");
+                            })
+                            ->form([
+                                \Filament\Forms\Components\TextInput::make('transmitted_to')
+                                    ->label('Transmitted To')
+                                    ->placeholder('e.g. Site Manager / Supervisor name')
+                                    ->required(),
+                                \Filament\Forms\Components\TextInput::make('transmitted_by')
+                                    ->label('Transmitted By')
+                                    ->default(fn () => Auth::user()?->name ?? '')
+                                    ->required(),
+                                \Filament\Forms\Components\TextInput::make('purpose')
+                                    ->label('Purpose')
+                                    ->placeholder('e.g. New hire uniform issuance'),
+                                \Filament\Forms\Components\TextInput::make('instructions')
+                                    ->label('Instructions')
+                                    ->placeholder('e.g. Please sign and return copy'),
+                            ])
+                            ->action(function ($record, array $data, Action $action) {
+                                $record->loadMissing(
+                                    'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
+                                    'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
+                                );
+
+                                $summaryMap = [];
+                                foreach ($record->uniformIssuanceRecipient as $recipient) {
+                                    foreach ($recipient->uniformIssuanceItem as $item) {
+                                        $qty = (int) ($item->released_quantity ?: $item->quantity);
+                                        if ($qty <= 0) continue;
+
+                                        $itemName = $item->uniformItem?->uniform_item_name ?? '—';
+                                        $size     = $item->uniformItemVariant?->uniform_item_size ?? '—';
+                                        $key      = $itemName . '||' . $size;
+
+                                        if (!isset($summaryMap[$key])) {
+                                            $summaryMap[$key] = ['item_name' => $itemName, 'size' => $size, 'qty' => 0];
+                                        }
+                                        $summaryMap[$key]['qty'] += $qty;
+                                    }
+                                }
+
+                                if (empty($summaryMap)) {
+                                    Notification::make()
+                                        ->title('Nothing to Transmit')
+                                        ->body('No issued items found on this issuance.')
+                                        ->warning()
+                                        ->send();
+                                    $action->halt();
+                                    return;
+                                }
+
+                                $transmittal = \App\Models\Transmittals::create([
+                                    'uniform_issuance_id' => $record->id,
+                                    'transmittal_number'  => \App\Models\Transmittals::generateNumber(),
+                                    'transmitted_by'      => $data['transmitted_by'],
+                                    'transmitted_to'      => $data['transmitted_to'],
+                                    'purpose'             => $data['purpose'] ?? '',
+                                    'instructions'        => $data['instructions'] ?? '',
+                                    'items_summary'       => array_values($summaryMap),
+                                    'transmitted_at'      => now()->toDateString(),
+                                    'status'              => 'pending',
+                                ]);
+
+                                $transmittal->issuances()->attach($record->id);
+                                $record->update(['is_for_transmit' => true]);
+
+                                $url = route('uniform-issuances.transmittal', [
+                                    'issuance'    => $record->id,
+                                    'transmittal' => $transmittal->id,
+                                ]);
+
                                 Notification::make()
-                                    ->title('Nothing to Transmit')
-                                    ->body('No issued items found on this issuance.')
-                                    ->warning()
+                                    ->title('Transmittal Created')
+                                    ->body("{$transmittal->transmittal_number} created successfully.")
+                                    ->success()
+                                    ->actions([
+                                        \Filament\Actions\Action::make('open')
+                                            ->label('Open Transmittal')
+                                            ->url($url)
+                                            ->openUrlInNewTab()
+                                            ->button(),
+                                    ])
+                                    ->persistent()
                                     ->send();
-                                $action->halt();
-                                return;
-                            }
-    
-                            $transmittal = \App\Models\Transmittals::create([
-                                'uniform_issuance_id' => $record->id,
-                                'transmittal_number'  => \App\Models\Transmittals::generateNumber(),
-                                'transmitted_by'      => $data['transmitted_by'],
-                                'transmitted_to'      => $data['transmitted_to'],
-                                'purpose'             => $data['purpose'] ?? '',
-                                'instructions'        => $data['instructions'] ?? '',
-                                'items_summary'       => array_values($summaryMap),
-                                'transmitted_at'      => now()->toDateString(),
-                                'status'              => 'pending',
-                            ]);
-    
-                            // Attach via pivot
-                            $transmittal->issuances()->attach($record->id);
-    
-                            // Tag as transmitted
-                            $record->update(['is_for_transmit' => true]);
-    
-                            $url = route('uniform-issuances.transmittal', [
-                                'issuance'    => $record->id,
-                                'transmittal' => $transmittal->id,
-                            ]);
-    
-                            Notification::make()
-                                ->title('Transmittal Created')
-                                ->body("{$transmittal->transmittal_number} created successfully.")
-                                ->success()
-                                ->actions([
-                                    \Filament\Actions\Action::make('open')
-                                        ->label('Open Transmittal')
-                                        ->url($url)
-                                        ->openUrlInNewTab()
-                                        ->button(),
-                                ])
-                                ->persistent()
-                                ->send();
-                        }),
+                            }),
 
                         // ─── ADD ITEMS: only when issued ──────────────────────────────────
                         Action::make('add_items')
