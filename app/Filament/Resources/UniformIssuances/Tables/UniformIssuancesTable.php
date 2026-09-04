@@ -373,32 +373,32 @@ class UniformIssuancesTable
                         ->requiresConfirmation()
                         ->modalWidth('2xl')
                         ->visible(fn ($record) => in_array($record->uniform_issuance_status, ['pending', 'partial']))
-                    
+
                         ->form(function ($record) {
                             $record->load(
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             );
-                    
+
                             $fields = [];
-                    
+
                             foreach ($record->uniformIssuanceRecipient as $recipient) {
                                 $items = [];
-                    
+
                                 foreach ($recipient->uniformIssuanceItem as $item) {
                                     $remaining = (int) $item->remaining_quantity;
                                     if ($remaining <= 0) continue;
-                    
+
                                     $itemName = $item->uniformItem?->uniform_item_name        ?? '—';
                                     $size     = $item->uniformItemVariant?->uniform_item_size  ?? '—';
                                     $typeName = $item->uniformIssuanceType?->uniform_issuance_type_name ?? '—';
-                    
+
                                     // Include the issuance type in the label so the user can
                                     // distinguish two rows that share the same item + size but
                                     // have different types (e.g. "New Hire" vs "Salary Deduct").
                                     $label = "{$itemName} — {$size} [{$typeName}] (remaining: {$remaining})";
-                    
+
                                     $items[] = \Filament\Forms\Components\TextInput::make("item_{$item->id}_released")
                                         ->label($label)
                                         ->numeric()
@@ -407,7 +407,7 @@ class UniformIssuancesTable
                                         ->maxValue($remaining)
                                         ->required();
                                 }
-                    
+
                                 if (! empty($items)) {
                                     $fields[] = \Filament\Forms\Components\Placeholder::make("recipient_header_{$recipient->id}")
                                         ->label('')
@@ -415,42 +415,51 @@ class UniformIssuancesTable
                                             "<strong style='font-size:1rem;'>{$recipient->employee_name}</strong>"
                                         ))
                                         ->columnSpanFull();
-                    
+
                                     foreach ($items as $field) {
                                         $fields[] = $field;
                                     }
                                 }
                             }
-                    
+
                             return $fields;
                         })
-                    
+
                         ->action(function ($record, array $data, \Filament\Actions\Action $action) {
+
+                            // ── TEMP DEBUG: log exactly what arrived server-side ─────────────
+                            // Check storage/logs/laravel.log for "ISSUED_ACTION_DATA" after
+                            // clicking "Issued". If the item_{id}_released keys are missing
+                            // or all zero here, the form isn't submitting values correctly
+                            // (front-end issue). If they're present with correct values,
+                            // the bug is elsewhere in this action.
+                            \Illuminate\Support\Facades\Log::info('ISSUED_ACTION_DATA', $data);
+
                             $record->load(
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
                                 'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                             );
-                    
+
                             // ── PASS 1: compute planned deductions per variant ───────────────────────
                             // Track how much we plan to deduct per variant so we can detect
                             // over-deduction when multiple rows share the same variant.
                             $plannedDeductions = []; // [variantId => totalPlannedQty]
-                    
+
                             foreach ($record->uniformIssuanceRecipient as $recipient) {
                                 foreach ($recipient->uniformIssuanceItem as $item) {
                                     $newlyReleased = (int) ($data["item_{$item->id}_released"] ?? 0);
                                     if ($newlyReleased <= 0) continue;
-                    
+
                                     $variantId = $item->uniform_item_variant_id;
                                     $plannedDeductions[$variantId] = ($plannedDeductions[$variantId] ?? 0) + $newlyReleased;
                                 }
                             }
-                    
+
                             // ── PASS 2: validate each variant's total planned deduction vs stock ─────
                             foreach ($plannedDeductions as $variantId => $totalPlanned) {
                                 $variant = \App\Models\UniformItemVariants::find($variantId);
-                    
+
                                 if (! $variant) {
                                     \Filament\Notifications\Notification::make()
                                         ->title('Variant Not Found')
@@ -459,9 +468,9 @@ class UniformIssuancesTable
                                     $action->halt();
                                     return;
                                 }
-                    
+
                                 $currentStock = (int) $variant->uniform_item_quantity;
-                    
+
                                 if ($totalPlanned > $currentStock) {
                                     // Find item names for a helpful error message
                                     $itemNames = [];
@@ -477,7 +486,7 @@ class UniformIssuancesTable
                                             }
                                         }
                                     }
-                    
+
                                     \Filament\Notifications\Notification::make()
                                         ->title('Insufficient Stock')
                                         ->body(
@@ -491,14 +500,14 @@ class UniformIssuancesTable
                                     return;
                                 }
                             }
-                    
+
                             // ── PASS 3: capture stock_before per variant BEFORE any decrement ────────
                             $stockBeforeMap = [];
                             foreach ($plannedDeductions as $variantId => $_) {
                                 $variant = \App\Models\UniformItemVariants::find($variantId);
                                 $stockBeforeMap[$variantId] = $variant ? (int) $variant->uniform_item_quantity : null;
                             }
-                    
+
                             // ── PASS 4: apply deductions — one DB decrement per variant ──────────────
                             // We decrement the full planned amount for each variant in one shot
                             // so we never read stale stock mid-loop.
@@ -506,7 +515,7 @@ class UniformIssuancesTable
                                 \App\Models\UniformItemVariants::where('id', $variantId)
                                     ->decrement('uniform_item_quantity', $totalPlanned);
                             }
-                    
+
                             // ── PASS 5: update released/remaining per item row and build note ────────
                             $totalReleased  = 0;
                             $totalRemaining = 0;
@@ -567,7 +576,7 @@ class UniformIssuancesTable
 
                             // Sort: lowest stock_after first
                             usort($note, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
-                    
+
                             // ── PASS 6: update issuance status ──────────────────────────────────────
                             if ($totalRemaining === 0) {
                                 $status = 'issued';
@@ -576,15 +585,15 @@ class UniformIssuancesTable
                             } else {
                                 $status = 'partial';
                             }
-                    
+
                             $statusBefore = $record->uniform_issuance_status;
-                    
+
                             $record->update([
                                 'uniform_issuance_status' => $status,
                                 'issued_at'               => $status === 'issued'  ? now()->toDateString() : null,
                                 'partial_at'              => $status === 'partial' ? now()->toDateString() : null,
                             ]);
-                    
+
                             \App\Models\UniformIssuanceLog::create([
                                 'uniform_issuance_id' => $record->id,
                                 'user_id'             => \Illuminate\Support\Facades\Auth::id(),
@@ -593,7 +602,7 @@ class UniformIssuancesTable
                                 'status_to'           => $status,
                                 'note'                => json_encode($note),
                             ]);
-                    
+
                             if ($status === 'issued') {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Issued')
@@ -3025,23 +3034,31 @@ class UniformIssuancesTable
                                     'pending_at'                 => $record->pending_at?->toDateString(),
                                     'issued_at'                  => $record->issued_at?->toDateString(),
                                     'notes'                      => $record->notes,
-                                    'uniformIssuanceRecipient'   => $record->uniformIssuanceRecipient->map(fn ($recipient) => [
-                                        'id'                     => $recipient->id,
-                                        'transaction_id'         => $recipient->transaction_id,
-                                        'employee_name'          => $recipient->employee_name,
-                                        'employee_status'        => $recipient->employee_status,
-                                        'position_id'            => $recipient->position_id,
-                                        'uniform_set_id'         => $recipient->uniform_set_id,
-                                        'uniformIssuanceItem'    => $recipient->uniformIssuanceItem->map(fn ($item) => [
-                                            'id'                         => $item->id,
-                                            'uniform_issuance_type_id'   => $item->uniform_issuance_type_id,
-                                            'uniform_item_id'            => $item->uniform_item_id,
-                                            'uniform_item_variant_id'    => $item->uniform_item_variant_id,
-                                            'quantity'                   => $item->quantity,
-                                            'released_quantity'          => $item->released_quantity,
-                                            'remaining_quantity'         => $item->remaining_quantity,
-                                        ])->toArray(),
-                                    ])->toArray(),
+                                    'uniformIssuanceRecipient' => $record->uniformIssuanceRecipient->map(function ($recipient) {
+                                        $groups = $recipient->uniformIssuanceItem
+                                            ->groupBy('uniform_issuance_type_id')
+                                            ->map(fn ($items, $typeId) => [
+                                                'uniform_issuance_type_id' => $typeId !== '' ? $typeId : null,
+                                                'items' => $items->map(fn ($item) => [
+                                                    'id'                       => $item->id,
+                                                    'uniform_item_id'          => $item->uniform_item_id,
+                                                    'uniform_item_variant_id'  => $item->uniform_item_variant_id,
+                                                    'quantity'                 => $item->quantity,
+                                                    'released_quantity'        => $item->released_quantity,
+                                                    'remaining_quantity'       => $item->remaining_quantity,
+                                                ])->values()->toArray(),
+                                            ])->values()->toArray();
+
+                                        return [
+                                            'id'              => $recipient->id,
+                                            'transaction_id'  => $recipient->transaction_id,
+                                            'employee_name'   => $recipient->employee_name,
+                                            'employee_status' => $recipient->employee_status,
+                                            'position_id'     => $recipient->position_id,
+                                            'uniform_set_id'  => $recipient->uniform_set_id,
+                                            'itemGroups'      => $groups,
+                                        ];
+                                    })->toArray(),
                                 ];
                             })
                             ->action(function ($record, array $data, Action $action): void {
@@ -3050,11 +3067,13 @@ class UniformIssuancesTable
                                 // ── Aggregate stock issues ─────────────────────────────────────
                                 $aggregate = [];
                                 foreach ($data['uniformIssuanceRecipient'] ?? [] as $recipient) {
-                                    foreach ($recipient['uniformIssuanceItem'] ?? [] as $item) {
-                                        $variantId = $item['uniform_item_variant_id'] ?? null;
-                                        $qty       = (int) ($item['quantity'] ?? 0);
-                                        if (!$variantId || $qty <= 0) continue;
-                                        $aggregate[$variantId] = ($aggregate[$variantId] ?? 0) + $qty;
+                                    foreach ($recipient['itemGroups'] ?? [] as $group) {
+                                        foreach ($group['items'] ?? [] as $item) {
+                                            $variantId = $item['uniform_item_variant_id'] ?? null;
+                                            $qty       = (int) ($item['quantity'] ?? 0);
+                                            if (!$variantId || $qty <= 0) continue;
+                                            $aggregate[$variantId] = ($aggregate[$variantId] ?? 0) + $qty;
+                                        }
                                     }
                                 }
 
@@ -3142,40 +3161,42 @@ class UniformIssuancesTable
                                         $incomingRecipientIds[] = $recipientRecord->id;
                                         $incomingItemIds = [];
 
-                                        foreach ($recipientData['uniformIssuanceItem'] ?? [] as $itemData) {
-                                            $itemId = $itemData['id'] ?? null;
+                                        foreach ($recipientData['itemGroups'] ?? [] as $group) {
+                                            $typeId = $group['uniform_issuance_type_id'] ?? null;
 
-                                            $itemRecord = $itemId
-                                                ? $recipientRecord->uniformIssuanceItem()->find($itemId)
-                                                : null;
+                                            foreach ($group['items'] ?? [] as $itemData) {
+                                                $itemId = $itemData['id'] ?? null;
 
-                                            $qty      = (int) ($itemData['quantity'] ?? 0);
-                                            $released = (int) ($itemData['released_quantity'] ?? 0);
+                                                $itemRecord = $itemId
+                                                    ? $recipientRecord->uniformIssuanceItem()->find($itemId)
+                                                    : null;
 
-                                            $itemPayload = [
-                                                'uniform_issuance_type_id' => $itemData['uniform_issuance_type_id'] ?? null,
-                                                'uniform_item_id'          => $itemData['uniform_item_id'] ?? null,
-                                                'uniform_item_variant_id'  => $itemData['uniform_item_variant_id'] ?? null,
-                                                'quantity'                 => $qty,
-                                                'released_quantity'        => $released,
-                                                'remaining_quantity'       => max(0, $qty - $released),
-                                            ];
+                                                $qty      = (int) ($itemData['quantity'] ?? 0);
+                                                $released = (int) ($itemData['released_quantity'] ?? 0);
 
-                                            if ($itemRecord) {
-                                                $itemRecord->update($itemPayload);
-                                            } else {
-                                                $itemRecord = $recipientRecord->uniformIssuanceItem()->create($itemPayload);
+                                                $itemPayload = [
+                                                    'uniform_issuance_type_id' => $typeId,
+                                                    'uniform_item_id'          => $itemData['uniform_item_id'] ?? null,
+                                                    'uniform_item_variant_id'  => $itemData['uniform_item_variant_id'] ?? null,
+                                                    'quantity'                 => $qty,
+                                                    'released_quantity'        => $released,
+                                                    'remaining_quantity'       => max(0, $qty - $released),
+                                                ];
+
+                                                if ($itemRecord) {
+                                                    $itemRecord->update($itemPayload);
+                                                } else {
+                                                    $itemRecord = $recipientRecord->uniformIssuanceItem()->create($itemPayload);
+                                                }
+
+                                                $incomingItemIds[] = $itemRecord->id;
                                             }
-
-                                            $incomingItemIds[] = $itemRecord->id;
                                         }
 
-                                        // Delete removed items
                                         $recipientRecord->uniformIssuanceItem()
                                             ->whereNotIn('id', $incomingItemIds)
                                             ->delete();
                                     }
-
                                     // Delete removed recipients (and cascade their items)
                                     $record->uniformIssuanceRecipient()
                                         ->whereNotIn('id', $incomingRecipientIds)

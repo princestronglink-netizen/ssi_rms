@@ -7,6 +7,7 @@ use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use App\Models\UniformIssuanceLog;
 use App\Models\UniformItemVariants;
+use App\Models\UniformIssuances;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
@@ -19,30 +20,22 @@ class ListUniformIssuances extends ListRecords
     // Stock helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Aggregate total quantity per variant across ALL recipients and items.
-     * Returns [variantId => totalOrdered].
-     */
     private function aggregateStock(array $data): array
     {
         $aggregate = [];
-
         foreach ($data['uniformIssuanceRecipient'] ?? [] as $recipient) {
-            foreach ($recipient['uniformIssuanceItem'] ?? [] as $item) {
-                $variantId = $item['uniform_item_variant_id'] ?? null;
-                $qty       = (int) ($item['quantity'] ?? 0);
-                if (!$variantId || $qty <= 0) continue;
-                $aggregate[$variantId] = ($aggregate[$variantId] ?? 0) + $qty;
+            foreach ($recipient['itemGroups'] ?? [] as $group) {
+                foreach ($group['items'] ?? [] as $item) {
+                    $variantId = $item['uniform_item_variant_id'] ?? null;
+                    $qty       = (int) ($item['quantity'] ?? 0);
+                    if (!$variantId || $qty <= 0) continue;
+                    $aggregate[$variantId] = ($aggregate[$variantId] ?? 0) + $qty;
+                }
             }
         }
-
         return $aggregate;
     }
 
-    /**
-     * Returns an array of stock issue details, empty if no issues.
-     * Each entry: ['variant', 'ordered', 'stock', 'shortfall']
-     */
     private function getStockIssues(array $data): array
     {
         $issues = [];
@@ -73,17 +66,20 @@ class ListUniformIssuances extends ListRecords
     {
         return [
             CreateAction::make()
+                ->createAnother(false)
                 ->extraAttributes([
                     'style' => 'color: #ffffff;',
                 ])
 
-                // ── Pre-save stock validation ──────────────────────────────
                 ->before(function (CreateAction $action, array $data): void {
+
+                    // $data here is the ORIGINAL, unmutated submitted data —
+                    // before() always runs pre-mutation, and since the
+                    // repeater is no longer ->relationship()-bound, it's
+                    // present in full, including nested itemGroups/items.
                     $status = $data['uniform_issuance_status'] ?? 'pending';
                     $issues = $this->getStockIssues($data);
 
-                    // ── HARD BLOCK: issued + insufficient stock ────────────
-                    // Cannot save at all — notify and keep the modal open.
                     if ($status === 'issued' && !empty($issues)) {
                         $lines = collect($issues)
                             ->map(fn ($i) => "• {$i['variant']}: ordered {$i['ordered']}, in stock {$i['stock']} (short by {$i['shortfall']})")
@@ -106,9 +102,6 @@ class ListUniformIssuances extends ListRecords
                         return;
                     }
 
-                    // ── SOFT BLOCK: pending + stock issues + not acknowledged
-                    // The form shows a warning banner and a toggle. If the user
-                    // hasn't ticked it yet, halt and tell them what to do.
                     if ($status === 'pending' && !empty($issues)) {
                         $acknowledged = (bool) ($data['stock_warning_acknowledged'] ?? false);
 
@@ -123,17 +116,58 @@ class ListUniformIssuances extends ListRecords
                             $action->halt();
                             return;
                         }
-                        // Acknowledged → fall through to save
                     }
                 })
 
-                // ── Post-save: sync quantities + logging + stock deduction ──
+                // ── FULL CONTROL over record creation ──────────────────────
+                // $data passed to ->using() is the ORIGINAL submitted data —
+                // no mutation has happened to it yet, so
+                // 'uniformIssuanceRecipient' with its nested itemGroups/items
+                // is guaranteed to be present here.
+                ->using(function (array $data): UniformIssuances {
+
+                    $record = UniformIssuances::create(
+                        collect($data)
+                            ->except(['uniformIssuanceRecipient', 'stock_warning_acknowledged'])
+                            ->toArray()
+                    );
+
+                    foreach ($data['uniformIssuanceRecipient'] ?? [] as $recipientData) {
+                        $recipientRecord = $record->uniformIssuanceRecipient()->create(
+                            collect($recipientData)->except(['itemGroups'])->toArray()
+                        );
+
+                        foreach ($recipientData['itemGroups'] ?? [] as $group) {
+                            $typeId = $group['uniform_issuance_type_id'] ?? null;
+
+                            foreach ($group['items'] ?? [] as $itemData) {
+                                $qty = (int) ($itemData['quantity'] ?? 0);
+                                if ($qty <= 0) continue;
+
+                                $recipientRecord->uniformIssuanceItem()->create([
+                                    'uniform_issuance_type_id' => $typeId,
+                                    'uniform_item_id'          => $itemData['uniform_item_id'] ?? null,
+                                    'uniform_item_variant_id'  => $itemData['uniform_item_variant_id'] ?? null,
+                                    'quantity'                 => $qty,
+                                    'released_quantity'        => 0,
+                                    'remaining_quantity'       => $qty,
+                                ]);
+                            }
+                        }
+                    }
+
+                    return $record;
+                })
+
                 ->after(function ($record) {
-                    // syncQuantities does a fresh ->load() internally, so
-                    // all items get correct released/remaining values written to DB.
+
+                    // No $data param needed here anymore — everything this
+                    // block needs is loaded fresh off $record, which is now
+                    // guaranteed to have its recipients/items already saved
+                    // by ->using() above.
+
                     UniformIssuancesResource::syncQuantities($record);
 
-                    // Always log creation
                     UniformIssuanceLog::create([
                         'uniform_issuance_id' => $record->id,
                         'user_id'             => Auth::id(),
@@ -143,17 +177,14 @@ class ListUniformIssuances extends ListRecords
                         'note'                => 'Issuance was created.',
                     ]);
 
-                    // If created directly as issued, deduct stock for EVERY item.
                     if ($record->uniform_issuance_status === 'issued') {
 
-                        // Fresh load after syncQuantities updated the rows.
                         $record->load(
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItem',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant',
                             'uniformIssuanceRecipient.uniformIssuanceItem.uniformIssuanceType',
                         );
 
-                        // ── STEP 1: compute total deductions per variant ──────
                         $plannedDeductions = [];
                         foreach ($record->uniformIssuanceRecipient as $recipient) {
                             foreach ($recipient->uniformIssuanceItem as $item) {
@@ -164,20 +195,17 @@ class ListUniformIssuances extends ListRecords
                             }
                         }
 
-                        // ── STEP 2: capture stock_before per variant BEFORE decrement ─
                         $stockBeforeMap = [];
                         foreach ($plannedDeductions as $variantId => $_) {
                             $variant = UniformItemVariants::find($variantId);
                             $stockBeforeMap[$variantId] = $variant ? (int) $variant->uniform_item_quantity : null;
                         }
 
-                        // ── STEP 3: decrement each variant once ──────────────
                         foreach ($plannedDeductions as $variantId => $totalQty) {
                             UniformItemVariants::where('id', $variantId)
                                 ->decrement('uniform_item_quantity', $totalQty);
                         }
 
-                        // ── STEP 4: build note rows ───────────────────────────
                         $noteRows       = [];
                         $variantCache   = [];
                         $variantRunning = [];
@@ -186,6 +214,11 @@ class ListUniformIssuances extends ListRecords
                             foreach ($recipient->uniformIssuanceItem as $item) {
                                 $qty = (int) $item->quantity;
                                 if ($qty <= 0) continue;
+
+                                $item->update([
+                                    'released_quantity'  => $qty,
+                                    'remaining_quantity' => 0,
+                                ]);
 
                                 $variantId = $item->uniform_item_variant_id;
 
@@ -218,10 +251,8 @@ class ListUniformIssuances extends ListRecords
                             }
                         }
 
-                        // Sort: lowest stock_after first
                         usort($noteRows, fn ($a, $b) => ($a['stock_after'] ?? 0) <=> ($b['stock_after'] ?? 0));
 
-                        // Stamp issued_at
                         $record->update([
                             'issued_at' => $record->issued_at ?? now()->toDateString(),
                         ]);

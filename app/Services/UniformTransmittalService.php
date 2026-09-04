@@ -13,6 +13,9 @@ class UniformTransmittalService
     private const COMPANY_PHONE   = 'Tel no.: (049) 539-3215';
     private const COMPANY_LOGO    = '/images/logo.png';
 
+    // How many employee rows fit comfortably on one A4 page (non-last page).
+    private const ROWS_PER_PAGE = 18;
+
     /**
      * Generate transmittal from a saved Transmittal DB record.
      * Uses items_summary stored at the time of transmittal creation.
@@ -33,9 +36,10 @@ class UniformTransmittalService
             ];
         }
 
-        $rows = self::backfillEmployees($issuance, $rows);
+        $rows    = self::backfillEmployees($issuance, $rows);
+        $grouped = self::groupRowsByEmployee($rows);
 
-        $data = [
+        $baseData = [
             'transmittal_number' => $transmittal->transmittal_number,
             'transmitted_by'     => $transmittal->transmitted_by,
             'transmitted_to'     => $transmittal->transmitted_to,
@@ -43,11 +47,12 @@ class UniformTransmittalService
             'purpose'            => $transmittal->purpose ?? '',
             'instructions'       => $transmittal->instructions ?? '',
             'date'               => \Carbon\Carbon::parse($transmittal->transmitted_at)->timezone('Asia/Manila')->format('F d, Y'),
-            'rows'               => self::groupRowsByEmployee($rows),
         ];
 
+        $pages    = self::buildPages($baseData, $grouped, self::ROWS_PER_PAGE);
         $siteName = $issuance->site?->site_name ?? '';
-        return self::wrapDocument([$data], "Transmittal {$transmittal->transmittal_number} — {$siteName}");
+
+        return self::wrapDocument($pages, "Transmittal {$transmittal->transmittal_number} — {$siteName}");
     }
 
     /**
@@ -69,7 +74,7 @@ class UniformTransmittalService
             'uniformIssuanceRecipient.uniformIssuanceItem.uniformItemVariant'
         );
 
-        $data = self::buildDataFromIssuance(
+        $built = self::buildDataFromIssuance(
             $issuance,
             $transmittedTo,
             $transmittedBy,
@@ -77,10 +82,11 @@ class UniformTransmittalService
             $instructions
         );
 
+        $pages    = self::buildPages($built['base'], $built['rows'], self::ROWS_PER_PAGE);
         $siteName = $issuance->site?->site_name ?? '';
         $title    = "Transmittal — {$siteName}";
 
-        return self::wrapDocument([$data], $title);
+        return self::wrapDocument($pages, $title);
     }
 
     /**
@@ -103,9 +109,10 @@ class UniformTransmittalService
             ];
         }
 
-        $rows = self::backfillEmployees($issuance, $rows);
+        $rows    = self::backfillEmployees($issuance, $rows);
+        $grouped = self::groupRowsByEmployee($rows);
 
-        $data = [
+        $baseData = [
             'transmittal_number' => $transmittal->transmittal_number,
             'transmitted_by'     => $transmittal->transmitted_by,
             'transmitted_to'     => $transmittal->transmitted_to,
@@ -115,13 +122,13 @@ class UniformTransmittalService
             'date'               => \Carbon\Carbon::parse($transmittal->transmitted_at)
                                         ->timezone('Asia/Manila')
                                         ->format('F d, Y'),
-            'rows'               => self::groupRowsByEmployee($rows),
         ];
 
+        $pages    = self::buildPages($baseData, $grouped, self::ROWS_PER_PAGE);
         $siteName = $issuance->site?->site_name ?? '';
         $title    = "Transmittal #{$transmittal->transmittal_number} — {$siteName}";
 
-        return self::wrapDocument([$data], $title);
+        return self::wrapDocument($pages, $title);
     }
 
     /**
@@ -199,20 +206,22 @@ class UniformTransmittalService
             }
         }
 
-        $data = [
+        $grouped = self::groupRowsByEmployee($rows);
+
+        $baseData = [
             'transmitted_to' => $transmittedTo,
             'transmitted_by' => $transmittedBy,
             'issuance_type'  => $issuance->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
             'purpose'        => $purpose,
             'instructions'   => $instructions,
             'date'           => $logDate,
-            'rows'           => self::groupRowsByEmployee($rows),
         ];
 
+        $pages    = self::buildPages($baseData, $grouped, self::ROWS_PER_PAGE);
         $siteName = $issuance->site?->site_name ?? '';
         $title    = "Transmittal — {$siteName}";
 
-        return self::wrapDocument([$data], $title);
+        return self::wrapDocument($pages, $title);
     }
 
     private static function buildDataFromIssuance(
@@ -240,15 +249,52 @@ class UniformTransmittalService
 
         $dateSource = $issuance->issued_at ?? $issuance->partial_at ?? now();
 
+        // Returns 'base' (page meta, no rows) + 'rows' (grouped by employee)
+        // separately so the caller can paginate them.
         return [
-            'transmitted_to' => $transmittedTo,
-            'transmitted_by' => $transmittedBy,
-            'issuance_type'  => $issuance->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
-            'purpose'        => $purpose,
-            'instructions'   => $instructions,
-            'date'           => \Carbon\Carbon::parse($dateSource)->timezone('Asia/Manila')->format('F d, Y'),
-            'rows'           => self::groupRowsByEmployee($rows),
+            'base' => [
+                'transmitted_to' => $transmittedTo,
+                'transmitted_by' => $transmittedBy,
+                'issuance_type'  => $issuance->uniformIssuanceType?->uniform_issuance_type_name ?? '—',
+                'purpose'        => $purpose,
+                'instructions'   => $instructions,
+                'date'           => \Carbon\Carbon::parse($dateSource)->timezone('Asia/Manila')->format('F d, Y'),
+            ],
+            'rows' => self::groupRowsByEmployee($rows),
         ];
+    }
+
+    /**
+     * Splits grouped employee rows into page-sized chunks and merges each
+     * chunk with the shared page meta ($baseData), so every page repeats
+     * the header/TO/FROM/DATE block but only shows its slice of recipients.
+     * Row numbering ("NO.") continues across pages instead of resetting.
+     */
+    private static function buildPages(array $baseData, array $groupedRows, int $perPage): array
+    {
+        $perPage = max(1, $perPage);
+        $chunks  = array_chunk($groupedRows, $perPage);
+
+        if (empty($chunks)) {
+            $chunks = [[]]; // still render one (empty) page instead of nothing
+        }
+
+        $totalPages = count($chunks);
+        $pages      = [];
+        $startNo    = 1;
+
+        foreach ($chunks as $i => $chunk) {
+            $pages[] = array_merge($baseData, [
+                'rows'        => $chunk,
+                'page_no'     => $i + 1,
+                'total_pages' => $totalPages,
+                'start_no'    => $startNo,
+            ]);
+
+            $startNo += count($chunk);
+        }
+
+        return $pages;
     }
 
     /**
@@ -343,6 +389,11 @@ class UniformTransmittalService
         $instructions = e($d['instructions'] ?? '');
         $rows         = $d['rows'] ?? [];
 
+        $pageNo     = (int) ($d['page_no'] ?? 1);
+        $totalPages = (int) ($d['total_pages'] ?? 1);
+        $no         = ((int) ($d['start_no'] ?? 1)) - 1; // continues numbering across pages
+        $isLastPage = $pageNo === $totalPages;
+
         $cn      = e(self::COMPANY_NAME);
         $tagline = e(self::COMPANY_TAGLINE);
         $dept    = e(self::COMPANY_DEPT);
@@ -350,9 +401,8 @@ class UniformTransmittalService
         $phone   = e(self::COMPANY_PHONE);
         $logo    = e(self::COMPANY_LOGO);
 
-        $itemRows = '';
-        $MIN_ROWS = 12;
-        $no       = 0;
+        $itemRows      = '';
+        $ROWS_PER_PAGE = self::ROWS_PER_PAGE;
 
         foreach ($rows as $group) {
             $no++;
@@ -376,13 +426,58 @@ class UniformTransmittalService
                 </tr>";
         }
 
-        for ($f = count($rows); $f < $MIN_ROWS; $f++) {
+        // Pad to ROWS_PER_PAGE. On the last page we pad a bit less so the
+        // bottom block (Purpose/Instructions/Received By) doesn't get pushed
+        // off-page when combined with filler rows.
+        $padTarget = $isLastPage ? max(0, $ROWS_PER_PAGE - 4) : $ROWS_PER_PAGE;
+        for ($f = count($rows); $f < $padTarget; $f++) {
             $itemRows .= "
                 <tr class='data-row filler'>
                     <td class='c-no'>&nbsp;</td>
                     <td class='c-recipient'>&nbsp;</td>
                     <td class='c-desc'>&nbsp;</td>
                 </tr>";
+        }
+
+        $pageLine = $totalPages > 1
+            ? " &nbsp;·&nbsp; Page {$pageNo} of {$totalPages}"
+            : '';
+
+        // Bottom signature block only renders on the last page.
+        $bottomBlock = '';
+        if ($isLastPage) {
+            $bottomBlock = <<<HTML
+    <table class="bottom-table">
+        <tr>
+            <td class="b-label">Purpose :</td>
+            <td class="b-value b-bold">{$purpose}</td>
+        </tr>
+        <tr>
+            <td class="b-label">Instructions : <span class="b-hint">(please specify)</span></td>
+            <td class="b-value b-bold">{$instructions}</td>
+        </tr>
+        <tr>
+            <td class="b-label">Received By :</td>
+            <td class="b-value b-sig">
+                <div class="sig-space"></div>
+                <div class="sig-line-wrap">
+                    <div class="sig-line"></div>
+                    <div class="sig-line-label">Signature over printed name</div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td class="b-label">Date :</td>
+            <td class="b-value" style="text-align:center;vertical-align:middle;padding:3mm 3mm;">
+                <div class="date-line"></div>
+            </td>
+        </tr>
+    </table>
+HTML;
+        } else {
+            $bottomBlock = <<<HTML
+    <div class="continued-note">Continued on next page…</div>
+HTML;
         }
 
         return <<<HTML
@@ -438,35 +533,10 @@ class UniformTransmittalService
         </tbody>
     </table>
 
-    <table class="bottom-table">
-        <tr>
-            <td class="b-label">Purpose :</td>
-            <td class="b-value b-bold">{$purpose}</td>
-        </tr>
-        <tr>
-            <td class="b-label">Instructions : <span class="b-hint">(please specify)</span></td>
-            <td class="b-value b-bold">{$instructions}</td>
-        </tr>
-        <tr>
-            <td class="b-label">Received By :</td>
-            <td class="b-value b-sig">
-                <div class="sig-space"></div>
-                <div class="sig-line-wrap">
-                    <div class="sig-line"></div>
-                    <div class="sig-line-label">Signature over printed name</div>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            <td class="b-label">Date :</td>
-            <td class="b-value" style="text-align:center;vertical-align:middle;padding:3mm 3mm;">
-                <div class="date-line"></div>
-            </td>
-        </tr>
-    </table>
+    {$bottomBlock}
 
     <div class="addr-footer">
-        {$addr}<br>{$phone}
+        {$addr}<br>{$phone}{$pageLine}
     </div>
 
 </div>
@@ -592,6 +662,11 @@ body{font-family:Arial,sans-serif;background:#d1d9e6;color:#000;}
 .sig-line{width:100%;border-bottom:1.5px solid #000;}
 .sig-line-label{font-size:7.5pt;color:#555;margin-top:1mm;text-align:center;}
 .date-line{width:55%;margin:2mm auto;border-bottom:1.5px solid #000;height:8mm;}
+
+.continued-note{
+    flex-shrink:0;text-align:center;font-size:8.5pt;font-style:italic;
+    color:#777;padding:2mm 0;border-top:1px solid #ccc;
+}
 
 .addr-footer{flex-shrink:0;text-align:center;font-size:7.5pt;color:#555;padding-top:2mm;border-top:1px solid #ccc;margin-top:auto;line-height:1.6;}
 
