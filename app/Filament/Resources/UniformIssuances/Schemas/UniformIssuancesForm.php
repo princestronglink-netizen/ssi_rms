@@ -12,6 +12,7 @@ use Filament\Schemas\Schema;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Placeholder;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use App\Models\UniformItemVariants;
@@ -19,6 +20,7 @@ use App\Models\UniformItems;
 use App\Models\UniformSets;
 use App\Models\UniformSetItems;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 
 class UniformIssuancesForm
 {
@@ -193,31 +195,12 @@ class UniformIssuancesForm
                 // Each recipient collapses to a labelled card once filled in,
                 // so a form with several people stays scannable instead of
                 // becoming one long unbroken scroll. The "Add Recipient" button
-                // lives in the section header, not buried at the bottom, so it
-                // reads as an action that belongs to this card.
+                // now lives at the BOTTOM of this card, after the repeater,
+                // so it reads as the next action once you've reviewed what's
+                // already been added.
                 Section::make('Recipients')
                     ->description('Add every employee who is part of this issuance and the items they will receive.')
                     ->icon('heroicon-o-users')
-                    ->headerActions([
-                        Action::make('add_recipient')
-                            ->label('Add Recipient')
-                            ->icon('heroicon-o-user-plus')
-                            ->color('primary')
-                            ->action(function (Get $get, Set $set) {
-                                $recipients = $get('uniformIssuanceRecipient') ?? [];
-
-                                $recipients[] = [
-                                    'transaction_id'  => null,
-                                    'employee_name'   => null,
-                                    'employee_status' => null,
-                                    'position_id'     => null,
-                                    'uniform_set_id'  => null,
-                                    'itemGroups'      => [],
-                                ];
-
-                                $set('uniformIssuanceRecipient', $recipients);
-                            }),
-                    ])
                     ->columns(1)
                     ->schema([
                         Repeater::make('uniformIssuanceRecipient')
@@ -294,22 +277,6 @@ class UniformIssuancesForm
                                 Section::make('Uniform Items')
                                     ->description('Group the items this recipient gets by issuance type.')
                                     ->icon('heroicon-o-squares-2x2')
-                                    ->headerActions([
-                                        Action::make('add_issuance_type_group')
-                                            ->label('Add Issuance Type Group')
-                                            ->icon('heroicon-o-plus-circle')
-                                            ->color('primary')
-                                            ->action(function (Get $get, Set $set) {
-                                                $groups = $get('itemGroups') ?? [];
-
-                                                $groups[] = [
-                                                    'uniform_issuance_type_id' => null,
-                                                    'items' => [],
-                                                ];
-
-                                                $set('itemGroups', $groups);
-                                            }),
-                                    ])
                                     ->columnSpanFull()
                                     ->schema([
                                         Repeater::make('itemGroups')
@@ -341,25 +308,6 @@ class UniformIssuancesForm
                                                 Section::make('Items')
                                                     ->description('The specific item, size, and quantity for this type.')
                                                     ->icon('heroicon-o-archive-box')
-                                                    ->headerActions([
-                                                        Action::make('add_item')
-                                                            ->label('Add Item')
-                                                            ->icon('heroicon-o-plus')
-                                                            ->color('primary')
-                                                            ->action(function (Get $get, Set $set) {
-                                                                $items = $get('items') ?? [];
-
-                                                                $items[] = [
-                                                                    'uniform_item_id'         => null,
-                                                                    'uniform_item_variant_id' => null,
-                                                                    'quantity'                => null,
-                                                                    'released_quantity'       => 0,
-                                                                    'remaining_quantity'      => 0,
-                                                                ];
-
-                                                                $set('items', $items);
-                                                            }),
-                                                    ])
                                                     ->columnSpanFull()
                                                     ->schema([
                                                         Repeater::make('items')
@@ -469,16 +417,91 @@ class UniformIssuancesForm
                                                                     ->columnSpanFull(),
                                                             ])
                                                             ->columnSpanFull(),
+
+                                                        // "Add Item" now sits at the bottom of the Items card.
+                                                        Actions::make([
+                                                            Action::make('add_item')
+                                                                ->label('Add Item')
+                                                                ->icon('heroicon-o-plus')
+                                                                ->color('primary')
+                                                                ->action(function (Get $get, Set $set) {
+                                                                    $items = $get('items') ?? [];
+
+                                                                    // UUID key (not $items[] = ...) so this new row is
+                                                                    // keyed the same way Filament's own repeater keys
+                                                                    // rows. Integer keys here caused ghost/ophaned rows
+                                                                    // to survive add+delete cycles and fail validation
+                                                                    // on submit.
+                                                                    $items[(string) Str::uuid()] = [
+                                                                        'uniform_item_id'         => null,
+                                                                        'uniform_item_variant_id' => null,
+                                                                        'quantity'                => null,
+                                                                        'released_quantity'       => 0,
+                                                                        'remaining_quantity'      => 0,
+                                                                    ];
+
+                                                                    $set('items', $items);
+                                                                }),
+                                                        ])
+                                                            ->alignCenter()
+                                                            ->columnSpanFull(),
                                                     ]),
                                             ])
                                             ->columnSpanFull()
                                             ->live(),
+
+                                        // "Add Issuance Type Group" now sits at the bottom
+                                        // of the Uniform Items card.
+                                        Actions::make([
+                                            Action::make('add_issuance_type_group')
+                                                ->label('Add Issuance Type Group')
+                                                ->icon('heroicon-o-plus-circle')
+                                                ->color('primary')
+                                                ->action(function (Get $get, Set $set) {
+                                                    $groups = $get('itemGroups') ?? [];
+
+                                                    // UUID key — see note on add_item above.
+                                                    $groups[(string) Str::uuid()] = [
+                                                        'uniform_issuance_type_id' => null,
+                                                        'items' => [],
+                                                    ];
+
+                                                    $set('itemGroups', $groups);
+                                                }),
+                                        ])
+                                            ->alignCenter()
+                                            ->columnSpanFull(),
                                     ]),
                             ])
                             ->itemLabel(fn (array $state): ?string => $state['employee_name'] ?? 'New Recipient')
                             ->collapsible()
                             ->columnSpanFull()
                             ->live(),
+
+                        // "Add Recipient" now sits at the bottom of the Recipients card.
+                        Actions::make([
+                            Action::make('add_recipient')
+                                ->label('Add Recipient')
+                                ->icon('heroicon-o-user-plus')
+                                ->color('primary')
+                                ->action(function (Get $get, Set $set) {
+                                    $recipients = $get('uniformIssuanceRecipient') ?? [];
+
+                                    // UUID key — see note on add_item above.
+                                    $recipients[(string) Str::uuid()] = [
+                                        'transaction_id'  => null,
+                                        'employee_name'   => null,
+                                        'employee_status' => null,
+                                        'position_id'     => null,
+                                        'uniform_set_id'  => null,
+                                        'itemGroups'      => [],
+                                    ];
+
+                                    $set('uniformIssuanceRecipient', $recipients);
+                                }),
+                        ])
+                            ->alignCenter()
+                            ->columnSpanFull(),
                     ]),
 
                 // ── Summary & Stock Health ───────────────────────────────────
